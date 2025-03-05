@@ -1,0 +1,12 @@
+name: Stock_Price_Prediction
+title: Stock_Price_Prediction
+username:
+account: konglr
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 8956687
+bundleId: 9894682
+url: https://konglr.shinyapps.io/Stock_Price_Prediction/
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: ticker_data.rds
