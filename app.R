@@ -77,19 +77,19 @@ server <- function(input, output) {
                to = Sys.Date(), auto.assign = FALSE)
   })
   # Load hdf5 Model 
-  model_5_days <- keras::load_model_hdf5("model_PAYH_5_days.h5")
+  #model_5_days <- keras::load_model_hdf5("model_PAYH_5_days.h5")
   
-  predict_result <- reactive({
-    last_five_rows <- tail(ticker_data(), 5) 
-    last_five_data <- last_five_rows[, 1:4]
-    test_5_days_data <- array(0, dim = c(1,5,4))
-    test_5_days_data[1,,] <-test_5_days_data
+  #predict_result <- reactive({
+    #last_five_rows <- tail(ticker_data(), 5) 
+    #last_five_data <- last_five_rows[, 1:4]
+    #test_5_days_data <- array(0, dim = c(1,5,4))
+    #test_5_days_data[1,,] <-test_5_days_data
       
-    prediction <- predict(model_5_days, test_5_days_data)
+    #prediction <- predict(model_5_days, test_5_days_data)
     
     # Return the prediction result
-    return(prediction)
-  })
+   # return(prediction)
+#  })
   
   output$plot <- renderPlot({
   
@@ -120,8 +120,8 @@ server <- function(input, output) {
                              striped=TRUE, hover=TRUE)
   
   output$prediction_result <- renderTable({
-    data.frame(predict_result())
-    #data.frame(tail(ticker_data(), 5))
+    #data.frame(predict_result())
+    data.frame(tail(ticker_data(), 5))
   })
   
 }
