@@ -5,7 +5,7 @@ account: konglr
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 8956687
-bundleId: 9900129
+bundleId: 9905208
 url: https://konglr.shinyapps.io/Stock_Price_Prediction/
 asMultiple: FALSE
 asStatic: FALSE
