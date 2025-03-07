@@ -72,7 +72,7 @@ server <- function(input, output) {
   # Get data
   ticker_data <- reactive({
     getSymbols(input$ticker,
-               from = Sys.Date() - 400,
+               from = Sys.Date() - 380,
                to = Sys.Date(), auto.assign = FALSE)
   })
   
