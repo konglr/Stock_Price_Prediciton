@@ -103,7 +103,7 @@ server <- function(input, output) {
     close_prices <- tail(close_prices, input$table_rows)
     
     change_percentage_formatted <- paste0(round(change_percentage, 2), "%")
-    table_data <- data.frame(data[, 1:5], ChangePercentage = change_percentage_formatted)
+    table_data <- data.frame(data[, 1:5],  "Change" = change_percentage_formatted)
     table_data
   }, spacing = "xs", rownames = TRUE, striped = TRUE, hover = TRUE)
   
