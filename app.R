@@ -78,14 +78,14 @@ ui <- page_sidebar(
       fill = FALSE, 
       gap = "10px",
       style = "margin-bottom: 10px;", 
-      # 左边：最新交易数据
+      # 左边：关键统计指标
       value_box(
         title = "最新交易数据",
         value = uiOutput("vbox_market_stats"),
         showcase = bsicons::bs_icon("bar-chart-fill"),
         theme = "primary"
       ),
-      # 右边：阶段收益率概览
+      # 右边：多阶段收益率
       value_box(
         title = "收益率概览",
         value = uiOutput("vbox_performance"),
@@ -125,7 +125,7 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
   
   options(HTTPUserAgent = "Mozilla/5.0")
-  apiKey = "" # 环境填充
+  apiKey = "AIzaSyCzdDtkf1UlSR6EllTBfkAdWpyMERL7R9E" # 环境填充
   
   observeEvent(input$ticker_preset, {
     updateTextInput(session, "ticker_custom", value = input$ticker_preset)
@@ -139,28 +139,22 @@ server <- function(input, output, session) {
   ticker_data <- reactive({
     ticker <- current_ticker()
     tryCatch({
+      # 获取足够多的数据来计算 360天收益率和 52周范围
       getSymbols(ticker, from = Sys.Date() - 600, to = Sys.Date(), auto.assign = FALSE, src = "yahoo")
     }, error = function(e) return(NULL))
   })
   
-  # 1. 关键统计指标与变动数据
+  # 1. 关键统计指标 (移至左侧)
   output$vbox_market_stats <- renderUI({
     data <- ticker_data()
     if (is.null(data) || nrow(data) < 2) return("等待数据...")
     
     last_row <- tail(data, 1)
-    prev_row <- tail(data, 2)[1, ]
-    
     cl <- as.numeric(Cl(last_row))
     op <- as.numeric(Op(last_row))
     hi <- as.numeric(Hi(last_row))
     lo <- as.numeric(Lo(last_row))
     vol <- as.numeric(Vo(last_row))
-    
-    # 变动金额与百分比 (相对于前一交易日收盘)
-    prev_cl <- as.numeric(Cl(prev_row))
-    change_val <- cl - prev_cl
-    change_pct <- (change_val / prev_cl) * 100
     
     # 52周范围
     data_52w <- tail(data, 252)
@@ -171,37 +165,29 @@ server <- function(input, output, session) {
     avg_vol_30d <- mean(tail(Vo(data), 30), na.rm = TRUE)
     
     # 振幅
+    prev_cl <- as.numeric(Cl(data)[max(1, nrow(data)-1)])
     amplitude <- ((hi - lo) / prev_cl) * 100
     
-    color_class <- if(change_val >= 0) "text-success" else "text-danger"
-    change_icon <- if(change_val >= 0) "▲" else "▼"
-    
     div(
-      # 第一行：现价与涨跌
-      div(style="display: flex; align-items: baseline; gap: 10px;",
-          div(style="font-size: 1.8rem; font-weight: bold;", paste0("$", round(cl, 2))),
-          div(class = color_class, style="font-size: 1.1rem; font-weight: bold;", 
-              sprintf("%s %.2f (%+.2f%%)", change_icon, abs(change_val), change_pct))
-      ),
-      # 详细指标排版
-      div(style="font-size: 0.85rem; line-height: 1.4; margin-top: 5px; color: rgba(255,255,255,0.9);",
-          div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 2px 0;",
+      div(style="font-size: 1.5rem; font-weight: bold; margin-bottom: 5px;", paste0("$", round(cl, 2))),
+      div(style="font-size: 0.85rem; line-height: 1.5;",
+          div(style="display: flex; justify-content: space-between;",
               span(strong("开盘: "), round(op, 2)),
               span(strong("成交量: "), paste0(round(vol/1e6, 2), "M"))
           ),
-          div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 2px 0;",
-              span(strong("当日范围: "), paste0(round(lo, 2), " - ", round(hi, 2))),
-              span(strong("平均成交量: "), paste0(round(avg_vol_30d/1e6, 2), "M"))
+          div(style="display: flex; justify-content: space-between;",
+              span(strong("当日范围: "), paste0(round(lo, 2), "-", round(hi, 2))),
+              span(strong("平均量: "), paste0(round(avg_vol_30d/1e6, 2), "M"))
           ),
-          div(style="display: flex; justify-content: space-between; padding: 2px 0;",
-              span(strong("52周范围: "), paste0(round(lo_52w, 2), " - ", round(hi_52w, 2))),
-              span(strong("振幅: "), sprintf("%.2f%%", amplitude))
+          div(style="display: flex; justify-content: space-between;",
+              span(strong("52周范围: "), paste0(round(lo_52w, 2), "-", round(hi_52w, 2))),
+              span(strong("振幅: "), sprintf("%.2f%%", amplitude), class="text-white")
           )
       )
     )
   })
   
-  # 2. 阶段收益率
+  # 2. 阶段收益率 (右侧：7d, 30d, 60d, 90d, 180d, 360d)
   output$vbox_performance <- renderUI({
     data <- ticker_data()
     if (is.null(data) || nrow(data) < 2) return("--")
@@ -219,8 +205,8 @@ server <- function(input, output, session) {
     items <- lapply(seq_along(periods), function(i) {
       val <- calc_ret(data, periods[i])
       color <- if(is.na(val)) "text-muted" else if(val >= 0) "text-success" else "text-danger"
-      div(style = "flex: 1; text-align: center; border-right: 1px solid #eee;",
-          div(style = "font-size: 0.7rem; color: #666; font-weight: bold;", labels[i]),
+      div(style = "flex: 1; text-align: center; border-right: 1px solid #eee; last-child: border-none;",
+          div(style = "font-size: 0.7rem; color: #666; text-transform: uppercase;", labels[i]),
           div(class = color, style = "font-weight: bold; font-size: 0.9rem;", 
               if(is.na(val)) "--" else sprintf("%+.2f%%", val))
       )
