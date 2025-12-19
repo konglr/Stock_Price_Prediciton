@@ -5,7 +5,7 @@ library(PerformanceAnalytics)
 
 # 下载ticker股票价格数据
 #ticker_data <- readRDS(file = "ticker_data.rds")
-ticker <-getSymbols("002077.SZ", auto.assign = TRUE)
+ticker <-getSymbols("AAPL")
 ticker <- na.omit(adjustOHLC(ticker_data$AAPL,use.Adjusted = TRUE))
 # 计算5日和50日的简单移动平均线（SMA）
 sma5 <- SMA(Cl(ticker), n = 5)
