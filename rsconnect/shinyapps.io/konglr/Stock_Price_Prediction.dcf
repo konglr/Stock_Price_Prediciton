@@ -5,8 +5,7 @@ account: konglr
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 8956687
-bundleId: 10012605
+bundleId: 11341992
 url: https://konglr.shinyapps.io/Stock_Price_Prediction/
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: keras stock prediction.R|Keras Transformer Model.R|Margin Trading Strategy_Order.R|Margin Trading Strategy.R|model_300418_5_days_SMA.h5|model_PAYH_5_days.h5|Prediction Test/keras stock prediction.R|Prediction Test/Keras Transformer Model.R|Prediction Test/Margin Trading Strategy_Order.R|Prediction Test/Margin Trading Strategy.R|Prediction Test/SMA Trading Strategy.R|SMA Trading Strategy.R|ticker_data.rds

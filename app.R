@@ -2,216 +2,302 @@
 #
 #    http://shiny.rstudio.com/
 #
-# 加载必要的库
 library(shiny)
 library(shinyWidgets)
 library(tidyquant)
-library(plotly)
+library(ggplot2)
 library(quantmod)
+library(TTR)
+library(htmltools)
 library(bslib)
 library(httr2)
 library(jsonlite)
 
-# --- UI 部分 ---
+# 定义 UI
 ui <- page_sidebar(
-  theme = bs_theme(version = 5, bootswatch = "cosmo"),
-  title = "StockAI - 智能股票预测系统",
+  header = tags$head(
+    HTML('
+      <!-- Global site tag (gtag.js) - Google Analytics -->
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-8LL329L0WC"></script>
+      <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag("js", new Date());
+        gtag("config", "G-8LL329L0WC");
+      </script>
+    ')
+  ),
+  
+  theme = bs_theme(version = 5, bootswatch = "flatly"),
+  title = "StockAI - Gemini 驱动的股票智能预测",
   
   sidebar = sidebar(
     width = 300,
     pickerInput(
-      inputId = "ticker",
-      label = "选择股票代码 (Ticker)",
+      inputId = "ticker_preset",
+      label = "常用股票选择",
       choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "SQQQ", ".IXIC", "000001.SZ"),
       selected = "AAPL",
       options = list(`live-search` = TRUE)
     ),
     
-    radioGroupButtons(
+    textInput(
+      inputId = "ticker_custom",
+      label = "手动输入股票代码",
+      value = "AAPL"
+    ),
+    
+    radioButtons(
       inputId = "period",
-      label = "时间跨度",
-      choices = c("20天" = 20, "1个月" = 30, "3个月" = 90, "半年" = 180, "1年" = 365),
-      selected = 30,
-      justified = TRUE
+      label = "时间跨度 (Time Period)",
+      choices = c("20天" = 20, "1个月" = 30, "3个月" = 90, "6个月" = 180, "1年" = 365),
+      selected = 30
     ),
     
     selectInput(
       inputId = "plot_type",
-      label = "图表类型",
-      choices = c("折线图" = "line", "蜡烛图" = "candlesticks"),
+      label = "图表类型 (Plot Type)",
+      choices = c("折线图" = "line", "条形图" = "bars", "蜡烛图" = "candlesticks", "针状图" = "matchsticks"),
       selected = "candlesticks"
     ),
     
     hr(),
-    h5("AI 预测设置"),
-    checkboxInput("do_ai", "启用 Gemini AI 深度分析", TRUE),
-    actionButton("predict_btn", "运行 AI 预测", class = "btn-primary w-100"),
+    h5("Gemini AI 预测模型"),
+    actionButton("run_ai", "运行 Gemini AI 预测", class = "btn-primary w-100"),
     
     hr(),
-    numericInput("table_rows", "显示历史数据行数:", 5, min = 1, max = 50)
+    checkboxInput("show_points", "在图表标记极值点 (addPoints)", TRUE),
+    checkboxInput("show_prediction", "显示历史数据明细", TRUE)
   ),
   
-  # 主界面布局
-  layout_column_wrap(
-    width = 1,
-    # 顶部统计卡片
+  # 主界面内容
+  div(
+    class = "d-flex flex-column", 
     layout_column_wrap(
-      width = 1/3,
+      width = 1/2,
+      fill = FALSE, 
+      gap = "10px",
+      style = "margin-bottom: 10px;", 
+      # 左边：最新交易数据
       value_box(
-        title = "最新收盘价",
-        value = uiOutput("last_price"),
-        showcase = icon("dollar-sign")
+        title = "最新交易数据",
+        value = uiOutput("vbox_market_stats"),
+        showcase = bsicons::bs_icon("bar-chart-fill"),
+        theme = "primary"
       ),
+      # 右边：阶段收益率概览
       value_box(
-        title = "当日涨跌幅",
-        value = uiOutput("price_change"),
-        showcase = icon("chart-line")
-      ),
-      value_box(
-        title = "AI 预测情绪",
-        value = uiOutput("ai_sentiment"),
-        showcase = icon("robot")
+        title = "收益率概览",
+        value = uiOutput("vbox_performance"),
+        showcase = bsicons::bs_icon("graph-up-arrow"),
+        theme = "light"
       )
     ),
     
-    # 图表展示
     card(
       full_screen = TRUE,
-      card_header("股价走势与指标 (SMA 5/10/20)"),
-      plotlyOutput("stock_plot")
+      style = "height: 50vh; min-height: 500px;", 
+      card_header("股票价格趋势分析 (quantmod)"),
+      card_body(
+        padding = 0, 
+        plotOutput(outputId = "plot", height = "100%") 
+      )
     ),
     
-    # AI 分析结论与表格
-    layout_column_wrap(
-      width = 1/2,
+    card(
+      style = "margin-top: 10px;",
+      card_header("Gemini AI 智能分析报告"),
+      card_body(uiOutput("ai_report_ui"))
+    ),
+    
+    conditionalPanel(
+      condition = "input.show_prediction == true",
       card(
-        card_header("Gemini AI 预测分析报告"),
-        uiOutput("ai_report")
-      ),
-      card(
-        card_header("近期历史数据"),
-        tableOutput("data_table")
+        style = "margin-top: 10px;",
+        card_header("历史数据明细 (最近10日)"),
+        tableOutput(outputId = "data")
       )
     )
   )
 )
 
-# --- Server 部分 ---
+# 定义 Server
 server <- function(input, output, session) {
   
-  # 响应式获取数据
-  stock_data <- reactive({
-    req(input$ticker)
+  options(HTTPUserAgent = "Mozilla/5.0")
+  apiKey = "" # 环境填充
+  
+  observeEvent(input$ticker_preset, {
+    updateTextInput(session, "ticker_custom", value = input$ticker_preset)
+  })
+  
+  current_ticker <- reactive({
+    req(input$ticker_custom)
+    toupper(input$ticker_custom)
+  })
+  
+  ticker_data <- reactive({
+    ticker <- current_ticker()
     tryCatch({
-      df <- getSymbols(input$ticker, from = Sys.Date() - 500, to = Sys.Date(), auto.assign = FALSE)
-      # 转换为 Data Frame 方便处理
-      df_final <- data.frame(Date = index(df), coredata(df))
-      colnames(df_final) <- c("Date", "Open", "High", "Low", "Close", "Volume", "Adjusted")
-      df_final
+      getSymbols(ticker, from = Sys.Date() - 600, to = Sys.Date(), auto.assign = FALSE, src = "yahoo")
     }, error = function(e) return(NULL))
   })
   
-  # 计算指标
-  processed_data <- reactive({
-    df <- stock_data()
-    if(is.null(df)) return(NULL)
+  # 1. 关键统计指标与变动数据
+  output$vbox_market_stats <- renderUI({
+    data <- ticker_data()
+    if (is.null(data) || nrow(data) < 2) return("等待数据...")
     
-    df$SMA5 <- SMA(df$Close, n = 5)
-    df$SMA10 <- SMA(df$Close, n = 10)
-    df$SMA20 <- SMA(df$Close, n = 20)
+    last_row <- tail(data, 1)
+    prev_row <- tail(data, 2)[1, ]
     
-    tail(df, as.numeric(input$period))
-  })
-  
-  # 渲染 Plotly 图表
-  output$stock_plot <- renderPlotly({
-    df <- processed_data()
-    req(df)
+    cl <- as.numeric(Cl(last_row))
+    op <- as.numeric(Op(last_row))
+    hi <- as.numeric(Hi(last_row))
+    lo <- as.numeric(Lo(last_row))
+    vol <- as.numeric(Vo(last_row))
     
-    p <- plot_ly(df, x = ~Date)
+    # 变动金额与百分比 (相对于前一交易日收盘)
+    prev_cl <- as.numeric(Cl(prev_row))
+    change_val <- cl - prev_cl
+    change_pct <- (change_val / prev_cl) * 100
     
-    if(input$plot_type == "candlesticks") {
-      p <- p %>% add_ohlc(open = ~Open, high = ~High, low = ~Low, close = ~Close, name = "价格")
-    } else {
-      p <- p %>% add_lines(y = ~Close, name = "收盘价", line = list(color = '#2563eb'))
-    }
+    # 52周范围
+    data_52w <- tail(data, 252)
+    hi_52w <- max(Hi(data_52w), na.rm = TRUE)
+    lo_52w <- min(Lo(data_52w), na.rm = TRUE)
     
-    p %>% 
-      add_lines(y = ~SMA5, name = "SMA 5", line = list(color = 'brown', width = 1)) %>%
-      add_lines(y = ~SMA10, name = "SMA 10", line = list(color = 'purple', width = 1)) %>%
-      add_lines(y = ~SMA20, name = "SMA 20", line = list(color = 'orange', width = 1)) %>%
-      layout(
-        xaxis = list(title = "", rangeslider = list(visible = FALSE)),
-        yaxis = list(title = "Price (USD/CNY)"),
-        legend = list(orientation = 'h', x = 0.5, y = 1.1, xanchor = 'center'),
-        margin = list(t = 50)
+    # 平均成交量 (30日)
+    avg_vol_30d <- mean(tail(Vo(data), 30), na.rm = TRUE)
+    
+    # 振幅
+    amplitude <- ((hi - lo) / prev_cl) * 100
+    
+    color_class <- if(change_val >= 0) "text-success" else "text-danger"
+    change_icon <- if(change_val >= 0) "▲" else "▼"
+    
+    div(
+      # 第一行：现价与涨跌
+      div(style="display: flex; align-items: baseline; gap: 10px;",
+          div(style="font-size: 1.8rem; font-weight: bold;", paste0("$", round(cl, 2))),
+          div(class = color_class, style="font-size: 1.1rem; font-weight: bold;", 
+              sprintf("%s %.2f (%+.2f%%)", change_icon, abs(change_val), change_pct))
+      ),
+      # 详细指标排版
+      div(style="font-size: 0.85rem; line-height: 1.4; margin-top: 5px; color: rgba(255,255,255,0.9);",
+          div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 2px 0;",
+              span(strong("开盘: "), round(op, 2)),
+              span(strong("成交量: "), paste0(round(vol/1e6, 2), "M"))
+          ),
+          div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 2px 0;",
+              span(strong("当日范围: "), paste0(round(lo, 2), " - ", round(hi, 2))),
+              span(strong("平均成交量: "), paste0(round(avg_vol_30d/1e6, 2), "M"))
+          ),
+          div(style="display: flex; justify-content: space-between; padding: 2px 0;",
+              span(strong("52周范围: "), paste0(round(lo_52w, 2), " - ", round(hi_52w, 2))),
+              span(strong("振幅: "), sprintf("%.2f%%", amplitude))
+          )
       )
-  })
-  
-  # 顶部卡片内容
-  output$last_price <- renderUI({
-    df <- stock_data()
-    req(df)
-    val <- tail(df$Close, 1)
-    span(paste0("$", round(val, 2)), style = "font-weight: bold;")
-  })
-  
-  output$price_change <- renderUI({
-    df <- stock_data()
-    req(df)
-    prices <- tail(df$Close, 2)
-    change <- (prices[2] - prices[1]) / prices[1] * 100
-    color <- if(change >= 0) "text-success" else "text-danger"
-    span(class = color, sprintf("%+.2f%%", change))
-  })
-  
-  # --- Gemini AI 预测逻辑 ---
-  ai_res <- eventReactive(input$predict_btn, {
-    df <- tail(stock_data(), 15)
-    data_str <- paste(apply(df, 1, function(x) paste0(x['Date'], ": ", x['Close'])), collapse = "; ")
-    
-    prompt <- paste0("分析以下股票数据并预测未来5天趋势: ", input$ticker, ". 数据: ", data_str, 
-                     ". 请以JSON格式返回: {'sentiment': '看涨/看跌/中性', 'target': '预测价', 'reason': '一句话理由'}")
-    
-    # API 调用逻辑 (符合系统提供的 Gemini API 规范)
-    tryCatch({
-      req <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent") %>%
-        req_url_query(key = "") %>% # 环境变量会自动处理 Key
-        req_body_json(list(
-          contents = list(list(parts = list(list(text = prompt)))),
-          generationConfig = list(responseMimeType = "application/json")
-        )) %>%
-        req_perform()
-      
-      res <- resp_body_json(req)
-      fromJSON(res$candidates[[1]]$content$parts[[1]]$text)
-    }, error = function(e) {
-      list(sentiment = "未知", target = "N/A", reason = "API 连接失败或数据不足")
-    })
-  })
-  
-  output$ai_sentiment <- renderUI({
-    res <- ai_res()
-    color <- switch(res$sentiment, "看涨" = "green", "看跌" = "red", "gray")
-    span(res$sentiment, style = paste0("color: ", color, "; font-weight: bold;"))
-  })
-  
-  output$ai_report <- renderUI({
-    res <- ai_res()
-    tagList(
-      h4(paste("目标价格:", res$target)),
-      p(class = "text-muted", res$reason),
-      tags$small("注: AI 预测仅供参考，不构成投资建议。")
     )
   })
   
-  # 数据表格
-  output$data_table <- renderTable({
-    df <- stock_data()
-    req(df)
-    tail(df[, c("Date", "Open", "High", "Low", "Close", "Volume")], input$table_rows)
-  }, striped = TRUE, hover = TRUE, width = "100%")
+  # 2. 阶段收益率
+  output$vbox_performance <- renderUI({
+    data <- ticker_data()
+    if (is.null(data) || nrow(data) < 2) return("--")
+    
+    calc_ret <- function(d, days) {
+      if(nrow(d) <= days) return(NA)
+      curr <- as.numeric(tail(Cl(d), 1))
+      prev <- as.numeric(Cl(d)[nrow(d) - days])
+      ((curr - prev) / prev) * 100
+    }
+    
+    periods <- c(7, 30, 60, 90, 180, 360)
+    labels <- c("7天", "30天", "60天", "90天", "180天", "360天")
+    
+    items <- lapply(seq_along(periods), function(i) {
+      val <- calc_ret(data, periods[i])
+      color <- if(is.na(val)) "text-muted" else if(val >= 0) "text-success" else "text-danger"
+      div(style = "flex: 1; text-align: center; border-right: 1px solid #eee;",
+          div(style = "font-size: 0.7rem; color: #666; font-weight: bold;", labels[i]),
+          div(class = color, style = "font-weight: bold; font-size: 0.9rem;", 
+              if(is.na(val)) "--" else sprintf("%+.2f%%", val))
+      )
+    })
+    
+    div(class = "d-flex justify-content-between w-100", style="padding-top: 10px;", items)
+  })
+  
+  # Gemini AI 逻辑
+  ai_prediction <- reactiveVal(NULL)
+  ai_loading <- reactiveVal(FALSE)
+  observeEvent(input$run_ai, {
+    data <- ticker_data(); if (is.null(data)) return()
+    ai_loading(TRUE); ai_prediction("分析中...")
+    recent_data <- tail(data, 30); data_summary <- paste(capture.output(print(recent_data)), collapse = "\n")
+    system_prompt <- "分析股票JSON: trend, prediction(5), reasoning, trade_advice(action, buy_price, take_profit, stop_loss)。"
+    user_query <- paste0("股票: ", current_ticker(), "\n数据：\n", data_summary)
+    tryCatch({
+      resp <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent") %>%
+        req_url_query(key = apiKey) %>% req_method("POST") %>%
+        req_body_json(list(contents = list(list(parts = list(list(text = user_query)))), systemInstruction = list(parts = list(list(text = system_prompt))), generationConfig = list(responseMimeType = "application/json"))) %>%
+        req_perform()
+      ai_prediction(fromJSON(resp_body_json(resp)$candidates[[1]]$content$parts[[1]]$text))
+    }, error = function(e) ai_prediction(list(error = "AI 暂时离线")))
+    ai_loading(FALSE)
+  })
+  
+  output$ai_report_ui <- renderUI({
+    res <- ai_prediction(); if (is.null(res)) return(p("点击按钮运行分析", class="text-muted"))
+    if (ai_loading()) return(div(class="spinner-border text-primary"))
+    tagList(h6("趋势: ", res$trend, class="text-primary fw-bold"), p(res$reasoning), hr(), div(class="row", div(class="col-6", strong("建议: "), res$trade_advice$action), div(class="col-6", strong("入场: "), res$trade_advice$buy_price)))
+  })
+  
+  # 图表渲染
+  output$plot <- renderPlot({
+    data <- ticker_data()
+    if (is.null(data)) return(NULL)
+    
+    n_days <- as.numeric(input$period)
+    subset_str <- paste("last", n_days, "days")
+    
+    chartSeries(data, 
+                type = input$plot_type, 
+                name = current_ticker(), 
+                theme = chartTheme("white"),
+                subset = subset_str,
+                TA = c(addVo(),
+                       addSMA(n = 5, col = "brown"),
+                       addSMA(n = 20, col = "orange"))) 
+    
+    if(input$show_points) {
+      subset_data <- data[subset_str]
+      if(!is.null(subset_data) && nrow(subset_data) > 0) {
+        max_val <- max(Hi(subset_data), na.rm = TRUE)
+        min_val <- min(Lo(subset_data), na.rm = TRUE)
+        max_idx <- which(Hi(subset_data) == max_val)[1]
+        min_idx <- which(Lo(subset_data) == min_val)[1]
+        all_dates <- index(subset_data)
+        max_vals <- rep(NA, length(all_dates))
+        min_vals <- rep(NA, length(all_dates))
+        max_vals[max_idx] <- max_val
+        min_vals[min_idx] <- min_val
+        pts_max <- xts(max_vals, order.by = all_dates)
+        pts_min <- xts(min_vals, order.by = all_dates)
+        addPoints(pts_max, pch = 19, col = "red", cex = 1.5, on = 1)
+        addPoints(pts_min, pch = 19, col = "darkgreen", cex = 1.5, on = 1)
+        addLines(h = as.numeric(max_val), col = "red", on = 1)
+        addLines(h = as.numeric(min_val), col = "darkgreen", on = 1)
+      }
+    }
+  })
+  
+  output$data <- renderTable({
+    data <- ticker_data(); if (is.null(data)) return(NULL)
+    data.frame(Date = as.character(index(tail(data, 10))), coredata(tail(data, 10)))
+  }, striped = TRUE, hover = TRUE)
 }
 
-# 启动应用
+# Run app
 shinyApp(ui = ui, server = server)
