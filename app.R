@@ -29,14 +29,14 @@ ui <- page_sidebar(
   ),
   
   theme = bs_theme(version = 5, bootswatch = "flatly"),
-  title = "StockAI - Gemini 驱动的股票智能预测",
+  title = "StockAI - Gemini 股票智能预测",
   
   sidebar = sidebar(
     width = 300,
     pickerInput(
       inputId = "ticker_preset",
       label = "常用股票选择",
-      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "SQQQ", ".IXIC", "000001.SZ"),
+      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "SQQQ", "^IXIC", "000001.SZ"),
       selected = "AAPL",
       options = list(`live-search` = TRUE)
     ),
@@ -139,55 +139,71 @@ server <- function(input, output, session) {
   ticker_data <- reactive({
     ticker <- current_ticker()
     tryCatch({
-      # 获取足够多的数据来计算 360天收益率和 52周范围
       getSymbols(ticker, from = Sys.Date() - 600, to = Sys.Date(), auto.assign = FALSE, src = "yahoo")
     }, error = function(e) return(NULL))
   })
   
-  # 1. 关键统计指标 (移至左侧)
+  # 1. 关键统计指标
   output$vbox_market_stats <- renderUI({
     data <- ticker_data()
     if (is.null(data) || nrow(data) < 2) return("等待数据...")
     
-    last_row <- tail(data, 1)
-    cl <- as.numeric(Cl(last_row))
-    op <- as.numeric(Op(last_row))
-    hi <- as.numeric(Hi(last_row))
-    lo <- as.numeric(Lo(last_row))
-    vol <- as.numeric(Vo(last_row))
+    rows <- tail(data, 2)
+    latest_row <- rows[2]
+    prev_row <- rows[1]
     
-    # 52周范围
+    cl <- as.numeric(Cl(latest_row))
+    prev_cl <- as.numeric(Cl(prev_row))
+    
+    diff <- cl - prev_cl
+    pct_diff <- (diff / prev_cl) * 100
+    diff_color <- if(diff >= 0) "#2ecc71" else "#e74c3c" 
+    
+    op <- as.numeric(Op(latest_row))
+    hi <- as.numeric(Hi(latest_row))
+    lo <- as.numeric(Lo(latest_row))
+    vol <- as.numeric(Vo(latest_row))
+    
     data_52w <- tail(data, 252)
     hi_52w <- max(Hi(data_52w), na.rm = TRUE)
     lo_52w <- min(Lo(data_52w), na.rm = TRUE)
     
-    # 平均成交量 (30日)
     avg_vol_30d <- mean(tail(Vo(data), 30), na.rm = TRUE)
-    
-    # 振幅
-    prev_cl <- as.numeric(Cl(data)[max(1, nrow(data)-1)])
     amplitude <- ((hi - lo) / prev_cl) * 100
     
     div(
-      div(style="font-size: 1.5rem; font-weight: bold; margin-bottom: 5px;", paste0("$", round(cl, 2))),
-      div(style="font-size: 0.85rem; line-height: 1.5;",
-          div(style="display: flex; justify-content: space-between;",
-              span(strong("开盘: "), round(op, 2)),
-              span(strong("成交量: "), paste0(round(vol/1e6, 2), "M"))
-          ),
-          div(style="display: flex; justify-content: space-between;",
-              span(strong("当日范围: "), paste0(round(lo, 2), "-", round(hi, 2))),
-              span(strong("平均量: "), paste0(round(avg_vol_30d/1e6, 2), "M"))
-          ),
-          div(style="display: flex; justify-content: space-between;",
-              span(strong("52周范围: "), paste0(round(lo_52w, 2), "-", round(hi_52w, 2))),
-              span(strong("振幅: "), sprintf("%.2f%%", amplitude), class="text-white")
-          )
+      class = "w-100",
+      style = "display: flex; align-items: center; justify-content: space-between;",
+      div(
+        style = "min-width: 150px;",
+        span(style="font-size: 2.4rem; font-weight: 800; display: block; line-height: 1;", paste0("$", round(cl, 2))),
+        span(style=paste0("font-size: 1.1rem; font-weight: 600; color: ", diff_color, ";"),
+             sprintf("%+.2f (%+.2f%%)", diff, pct_diff))
+      ),
+      div(style = "width: 1px; height: 80px; background: rgba(255,255,255,0.3); margin: 0 20px;"),
+      div(
+        style = "flex-grow: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 25px; font-size: 0.8rem; line-height: 1.4;",
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("开盘", style="opacity: 0.8;"), span(round(op, 2), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("成交量", style="opacity: 0.8;"), span(paste0(round(vol/1e6, 2), "M"), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("当日最高", style="opacity: 0.8;"), span(round(hi, 2), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("30日均量", style="opacity: 0.8;"), span(paste0(round(avg_vol_30d/1e6, 2), "M"), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("当日最低", style="opacity: 0.8;"), span(round(lo, 2), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("52W 最高", style="opacity: 0.8;"), span(round(hi_52w, 2), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("当日振幅", style="opacity: 0.8;"), span(sprintf("%.2f%%", amplitude), style="font-weight: 600;")),
+        div(style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1);", 
+            span("52W 最低", style="opacity: 0.8;"), span(round(lo_52w, 2), style="font-weight: 600;"))
       )
     )
   })
   
-  # 2. 阶段收益率 (右侧：7d, 30d, 60d, 90d, 180d, 360d)
+  # 2. 阶段收益率
   output$vbox_performance <- renderUI({
     data <- ticker_data()
     if (is.null(data) || nrow(data) < 2) return("--")
@@ -200,44 +216,137 @@ server <- function(input, output, session) {
     }
     
     periods <- c(7, 30, 60, 90, 180, 360)
-    labels <- c("7天", "30天", "60天", "90天", "180天", "360天")
+    labels <- c("7天", "30天", "60天", "90天", "180天", "1年")
     
     items <- lapply(seq_along(periods), function(i) {
       val <- calc_ret(data, periods[i])
       color <- if(is.na(val)) "text-muted" else if(val >= 0) "text-success" else "text-danger"
       div(style = "flex: 1; text-align: center; border-right: 1px solid #eee; last-child: border-none;",
-          div(style = "font-size: 0.7rem; color: #666; text-transform: uppercase;", labels[i]),
-          div(class = color, style = "font-weight: bold; font-size: 0.9rem;", 
-              if(is.na(val)) "--" else sprintf("%+.2f%%", val))
+          div(style = "font-size: 0.65rem; color: #666; font-weight: bold;", labels[i]),
+          div(class = color, style = "font-weight: 800; font-size: 0.85rem;", 
+              if(is.na(val)) "--" else sprintf("%+.1f%%", val))
       )
     })
     
-    div(class = "d-flex justify-content-between w-100", style="padding-top: 10px;", items)
+    div(class = "d-flex justify-content-between w-100", style="padding-top: 5px;", items)
   })
   
   # Gemini AI 逻辑
   ai_prediction <- reactiveVal(NULL)
   ai_loading <- reactiveVal(FALSE)
+  
   observeEvent(input$run_ai, {
-    data <- ticker_data(); if (is.null(data)) return()
-    ai_loading(TRUE); ai_prediction("分析中...")
-    recent_data <- tail(data, 30); data_summary <- paste(capture.output(print(recent_data)), collapse = "\n")
-    system_prompt <- "分析股票JSON: trend, prediction(5), reasoning, trade_advice(action, buy_price, take_profit, stop_loss)。"
-    user_query <- paste0("股票: ", current_ticker(), "\n数据：\n", data_summary)
+    data <- ticker_data()
+    if (is.null(data)) return()
+    
+    ai_loading(TRUE)
+    ai_prediction(NULL) # 重置状态
+    
+    recent_data <- tail(data, 360)
+    data_summary <- paste(capture.output(print(recent_data)), collapse = "\n")
+    
+    system_prompt <- "你是一位拥有20年经验的资深美股投资专家。
+    任务：基于用户提供的过去360个交易日数据，进行多维度的技术和量价分析。
+    要求返回 JSON 格式，包含：
+    - trend: 简短描述当前趋势
+    - prediction_5d: 预测未来 5 个交易日的估计收盘价数组
+    - reasoning: 详细的投资逻辑分析
+    - support_level: 主要支撑位置价格
+    - resistance_level: 主要阻力位置价格
+    - trade_advice: 交易策略对象，包含 action, buy_price, take_profit, stop_loss。"
+    
+    user_query <- paste0("股票代码: ", current_ticker(), "\n交易历史明细数据：\n", data_summary)
+    
     tryCatch({
       resp <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent") %>%
-        req_url_query(key = apiKey) %>% req_method("POST") %>%
-        req_body_json(list(contents = list(list(parts = list(list(text = user_query)))), systemInstruction = list(parts = list(list(text = system_prompt))), generationConfig = list(responseMimeType = "application/json"))) %>%
+        req_url_query(key = apiKey) %>% 
+        req_method("POST") %>%
+        req_body_json(list(
+          contents = list(list(parts = list(list(text = user_query)))), 
+          systemInstruction = list(parts = list(list(text = system_prompt))), 
+          generationConfig = list(responseMimeType = "application/json")
+        )) %>%
+        req_retry(max_tries = 3) %>%
         req_perform()
-      ai_prediction(fromJSON(resp_body_json(resp)$candidates[[1]]$content$parts[[1]]$text))
-    }, error = function(e) ai_prediction(list(error = "AI 暂时离线")))
+      
+      raw_text <- resp_body_json(resp)$candidates[[1]]$content$parts[[1]]$text
+      parsed_res <- fromJSON(raw_text)
+      ai_prediction(parsed_res)
+      
+    }, error = function(e) {
+      ai_prediction(list(error = paste("AI 分析失败:", e$message)))
+    })
     ai_loading(FALSE)
   })
   
   output$ai_report_ui <- renderUI({
-    res <- ai_prediction(); if (is.null(res)) return(p("点击按钮运行分析", class="text-muted"))
-    if (ai_loading()) return(div(class="spinner-border text-primary"))
-    tagList(h6("趋势: ", res$trend, class="text-primary fw-bold"), p(res$reasoning), hr(), div(class="row", div(class="col-6", strong("建议: "), res$trade_advice$action), div(class="col-6", strong("入场: "), res$trade_advice$buy_price)))
+    if (ai_loading()) {
+      return(div(class="d-flex justify-content-center p-5", div(class="spinner-border text-primary", role="status")))
+    }
+    
+    res <- ai_prediction()
+    if (is.null(res)) {
+      return(p("点击按钮启动资深投研分析", class="text-muted p-3 text-center"))
+    }
+    
+    if (!is.null(res$error)) {
+      return(div(class="alert alert-danger", as.character(res$error)))
+    }
+    
+    trend_text <- if(!is.null(res$trend)) as.character(res$trend) else "未知趋势"
+    reasoning_text <- if(!is.null(res$reasoning)) as.character(res$reasoning) else "暂无逻辑分析"
+    pred_text <- if(!is.null(res$prediction_5d)) paste(res$prediction_5d, collapse = " → ") else "暂无预测数据"
+    support_val <- if(!is.null(res$support_level)) as.character(res$support_level) else "--"
+    resistance_val <- if(!is.null(res$resistance_level)) as.character(res$resistance_level) else "--"
+    
+    tagList(
+      h5(paste0("趋势研判：", trend_text), class="text-primary fw-bold mb-3"),
+      div(class="row g-3",
+          # 左栏：专家逻辑分析
+          div(class="col-md-4",
+              div(class="card border-0 h-100", style="background: rgba(0,0,0,0.03);",
+                  div(class="card-body p-3",
+                      strong("AI专家逻辑分析"),
+                      p(reasoning_text, style="font-size: 0.9rem; margin-top: 8px; color: #444;")
+                  )
+              )
+          ),
+          # 中栏：预测趋势
+          div(class="col-md-4",
+              div(class="card border-0 h-100", style="background: rgba(0,0,0,0.03);",
+                  div(class="card-body p-3 text-center",
+                      strong("未来5日预测趋势"),
+                      div(style="margin-top: 15px; font-weight: 600; color: #555;", pred_text),
+                      div(style="margin-top: 10px;",
+                          bsicons::bs_icon("arrow-right-circle", size = "1.5rem", class="text-primary")
+                      )
+                  )
+              )
+          ),
+          # 右栏：交易建议
+          div(class="col-md-4",
+              div(class="card border-0 h-100", style="background: rgba(0,0,0,0.03);",
+                  div(class="card-body p-3",
+                      strong("关键点位与实战建议"),
+                      div(class="mt-2 d-flex flex-column gap-2",
+                          div(class="d-flex justify-content-between border-bottom pb-1", 
+                              span("主要支撑", class="small text-muted"), span(support_val, class="fw-bold text-success")),
+                          div(class="d-flex justify-content-between border-bottom pb-1", 
+                              span("主要阻力", class="small text-muted"), span(resistance_val, class="fw-bold text-danger")),
+                          div(class="d-flex justify-content-between border-bottom pb-1", 
+                              span("操作建议", class="small text-muted"), span(as.character(res$trade_advice$action), class="fw-bold text-info")),
+                          div(class="d-flex justify-content-between border-bottom pb-1", 
+                              span("建议入场", class="small text-muted"), span(as.character(res$trade_advice$buy_price), class="fw-bold")),
+                          div(class="d-flex justify-content-between border-bottom pb-1", 
+                              span("止盈目标", class="small text-muted"), span(as.character(res$trade_advice$take_profit), class="fw-bold text-success")),
+                          div(class="d-flex justify-content-between", 
+                              span("止损参考", class="small text-muted"), span(as.character(res$trade_advice$stop_loss), class="fw-bold text-danger"))
+                      )
+                  )
+              )
+          )
+      )
+    )
   })
   
   # 图表渲染
@@ -255,13 +364,15 @@ server <- function(input, output, session) {
                 subset = subset_str,
                 TA = c(addVo(),
                        addSMA(n = 5, col = "brown"),
-                       addSMA(n = 20, col = "orange"))) 
+                       addSMA(n = 20, col = "orange"),
+                       addSMA(n = 60, col = "purple"),
+                       addSMA(n = 120, col = "blue"))) 
     
     if(input$show_points) {
       subset_data <- data[subset_str]
       if(!is.null(subset_data) && nrow(subset_data) > 0) {
         max_val <- max(Hi(subset_data), na.rm = TRUE)
-        min_val <- min(Lo(subset_data), na.rm = TRUE)
+        min_val <- min(Lo(subset_data) , na.rm = TRUE)
         max_idx <- which(Hi(subset_data) == max_val)[1]
         min_idx <- which(Lo(subset_data) == min_val)[1]
         all_dates <- index(subset_data)
