@@ -125,7 +125,7 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
   
   options(HTTPUserAgent = "Mozilla/5.0")
-  apiKey = "AIzaSyCzdDtkf1UlSR6EllTBfkAdWpyMERL7R9E" # 环境填充
+  apiKey = "AIzaSyBZhIF9oMieIuk4VMV-Qg_hsuP1hpNz6Y8" # 环境填充
   
   observeEvent(input$ticker_preset, {
     updateTextInput(session, "ticker_custom", value = input$ticker_preset)
@@ -258,7 +258,7 @@ server <- function(input, output, session) {
     user_query <- paste0("股票代码: ", current_ticker(), "\n交易历史明细数据：\n", data_summary)
     
     tryCatch({
-      resp <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent") %>%
+      resp <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") %>%
         req_url_query(key = apiKey) %>% 
         req_method("POST") %>%
         req_body_json(list(
