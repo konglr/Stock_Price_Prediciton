@@ -258,8 +258,6 @@ server <- function(input, output, session) {
     user_query <- paste0("股票代码: ", current_ticker(), "\n交易历史明细数据：\n", data_summary)
     
     tryCatch({
-      resp <- request("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") %>%
-        req_url_query(key = apiKey) %>% 
         req_method("POST") %>%
         req_body_json(list(
           contents = list(list(parts = list(list(text = user_query)))), 
