@@ -51,7 +51,7 @@ ui <- page_sidebar(
       inputId = "period",
       label = "时间跨度 (Time Period)",
       choices = c("20天" = 20, "1个月" = 30, "3个月" = 90, "6个月" = 180, "1年" = 365),
-      selected = 30
+      selected = 180
     ),
     
     selectInput(
@@ -433,38 +433,59 @@ server <- function(input, output, session) {
     )
   })
   
+  # ---------------------------------------------------------
+  # 简化后的绘图逻辑：确保 subset 与 visible_data 严格一致
+  # ---------------------------------------------------------
   output$plot <- renderPlot({
     data <- ticker_data()
-    if (is.null(data)) return(NULL)
+    if (is.null(data) || nrow(data) < 5) return(NULL)
     
-    n_days <- as.numeric(input$period)
-    subset_str <- paste("last", n_days, "days")
+    # 【最简单方法】：先用 tail 取出要显示的“可见数据集”
+    # 这样 visible_data 的长度就严格等于 input$period
+    visible_data <- tail(data, as.numeric(input$period))
     
-    chartSeries(data, 
-                type = input$plot_type, 
-                name = current_ticker(), 
-                theme = chartTheme("white"),
-                subset = subset_str,
-                TA = c(addVo(),
-                       addSMA(n = 5, col = "brown"),
-                       addSMA(n = 20, col = "orange"),
-                       addSMA(n = 60, col = "purple"))) 
+    # 使用 visible_data 的时间戳作为 subset 条件，确保绘图范围和计算范围完全重合
+    subset_range <- paste0(start(visible_data), "::")
     
-    if(input$show_points) {
-      subset_data <- data[subset_str]
-      if(!is.null(subset_data) && nrow(subset_data) > 0) {
-        max_val <- max(Hi(subset_data), na.rm = TRUE)
-        min_val <- min(Lo(subset_data) , na.rm = TRUE)
-        max_idx <- which(Hi(subset_data) == max_val)[1]
-        min_idx <- which(Lo(subset_data) == min_val)[1]
-        all_dates <- index(subset_data)
-        max_vals <- rep(NA, length(all_dates)); max_vals[max_idx] <- max_val
-        min_vals <- rep(NA, length(all_dates)); min_vals[min_idx] <- min_val
-        addPoints(xts(max_vals, order.by = all_dates), pch = 19, col = "red", cex = 1.5, on = 1)
-        addPoints(xts(min_vals, order.by = all_dates), pch = 19, col = "darkgreen", cex = 1.5, on = 1)
-      }
+    # 绘图：直接传入完整 data 以便计算均线，但用 subset 限制显示范围
+    cs <- chart_Series(data, 
+                       name = current_ticker(), 
+                       subset = subset_range,
+                       type = input$plot_type, 
+                       theme = chart_theme())
+    
+    # 叠加指标 (基于完整 data 自动计算)
+    cs <- add_Vo()
+    cs <- add_SMA(n = 5, col = "blue")
+    cs <- add_SMA(n = 20, col = "red")
+    cs <- add_SMA(n = 60, col = "orange")
+    cs <- add_SMA(n = 120, col = "purple")
+    
+    # 计算极值 (直接在 visible_data 上操作)
+    hi_v <- Hi(visible_data); lo_v <- Lo(visible_data)
+    max_idx <- which.max(hi_v); max_val <- as.numeric(hi_v[max_idx])
+    min_idx <- which.min(lo_v); min_val <- as.numeric(lo_v[min_idx])
+    
+    if (input$show_points && length(max_idx) > 0) {
+      # 标记点：这里必须匹配 visible_data 的时间轴
+      pk_xts <- xts(max_val, order.by = index(visible_data)[max_idx])
+      vl_xts <- xts(min_val, order.by = index(visible_data)[min_idx])
+      
+      cs <- add_Series(pk_xts, type="p", pch=18, cex=2, col="red", on=1)
+      cs <- add_Series(vl_xts, type="p", pch=18, cex=2, col="darkgreen", on=1)
+    }
+    
+    print(cs)
+    
+    # 添加文字标注
+    if (input$show_points) {
+      try({
+        text(x = max_idx, y = max_val, labels = paste0("高: ", round(max_val, 2)), pos=3, col="red", font=2)
+        text(x = min_idx, y = min_val, labels = paste0("低: ", round(min_val, 2)), pos=1, col="darkgreen", font=2)
+      }, silent = TRUE)
     }
   })
+
   
   output$data <- renderTable({
     data <- ticker_data(); if (is.null(data)) return(NULL)
