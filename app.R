@@ -145,7 +145,7 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
   
   options(HTTPUserAgent = "Mozilla/5.0")
-  apiKey = "AIzaSyBZhIF9oMieIuk4VMV-Qg_hsuP1hpNz6Y8" # 留空，由环境自动填充
+  apiKey = Sys.getenv("GEMINI_API_KEY") # 从环境变量读取 API Key
   
   # 辅助函数：处理 NULL 值
   `%||%` <- function(a, b) if (!is.null(a)) a else b
