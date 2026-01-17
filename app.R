@@ -13,6 +13,10 @@ library(bslib)
 library(httr2)
 library(jsonlite)
 
+# 加载自定义外部函数
+source("functions/supertrend.R")
+source("functions/backtest.R")
+
 # 定义 UI
 ui <- page_sidebar(
   header = tags$head(
@@ -84,7 +88,10 @@ ui <- page_sidebar(
         "SAR (抛物线转向)" = "SAR",
         "OBV (能量潮)" = "OBV",
         "MFI (资金流量指标)" = "MFI",
-        "CLV (收盘位置值)" = "CLV"
+        "CLV (收盘位置值)" = "CLV",
+        "TR (真实波幅)" = "TR",
+        "ATR (平均真实波幅)" = "ATR",
+        "SuperTrend" = "SuperTrend"
       ),
       selected = c("SMA")
     ),
@@ -160,12 +167,64 @@ ui <- page_sidebar(
       card_body(uiOutput("ai_report_ui"))
     ),
     
-    conditionalPanel(
-      condition = "input.show_prediction == true",
-      card(
-        style = "margin-top: 10px;",
-        card_header("历史数据明细 (最近10日)"),
-        tableOutput(outputId = "data")
+    card(
+      style = "margin-top: 10px;",
+      card_header("交易策略回测系统 (Backtesting Suite)"),
+      navset_tab(
+        nav_panel(
+          title = "1. 策略与资金配置",
+          div(class = "p-3",
+              layout_column_wrap(
+                width = 1/2,
+                div(
+                  h6("资金管理"),
+                  numericInput("init_capital", "初始资金 (USD)", value = 10000, min = 100),
+                  sliderInput("trade_size", "单笔交易仓位 (%)", min = 1, max = 100, value = 20)
+                ),
+                div(
+                  h6("策略引擎与逻辑编辑器"),
+                  layout_column_wrap(
+                    width = 1/2,
+                    div(
+                      selectInput("bt_strategy", "快速代码模板", 
+                                  choices = c("自定义代码" = "custom",
+                                             "SuperTrend 趋势追踪" = "supertrend", 
+                                             "ADX + BBands 趋势突破" = "adx_bbands",
+                                             "SMA 交叉 (5/20)" = "sma_cross",
+                                             "RSI 超买超卖" = "rsi_logic"),
+                                  selected = "supertrend"),
+                      layout_column_wrap(
+                        width = 1/2,
+                        numericInput("stop_loss", "止损位 (%) (0为不设)", value = 0, min = 0),
+                        numericInput("take_profit", "止盈位 (%) (0为不设)", value = 0, min = 0)
+                      )
+                    ),
+                    div(
+                      textAreaInput("strategy_code", "策略信号逻辑 (R Code)", 
+                                    value = "", 
+                                    height = "180px",
+                                    placeholder = "在这里编写您的交易逻辑..."),
+                      tags$style("#strategy_code { font-family: 'Courier New', monospace; font-size: 12px; background: #fdf6e3; }")
+                    )
+                  )
+                )
+              ),
+              hr(),
+              actionButton("run_backtest", "启动历史回测", class = "btn-success w-100")
+          )
+        ),
+        nav_panel(
+          title = "2. 交易记录明细",
+          div(class = "p-2",
+              tableOutput("bt_trade_log")
+          )
+        ),
+        nav_panel(
+          title = "3. 绩效分析报告",
+          div(class = "p-3",
+              uiOutput("bt_performance_stats")
+          )
+        )
       )
     )
   )
@@ -293,15 +352,23 @@ server <- function(input, output, session) {
     # RSI 计算
     val_rsi <- as.numeric(last(RSI(cl_vec, n = 14)))
     
+    # TR 深度计算
+    tr_obj <- TR(HLC(data))
+    atr_obj <- ATR(HLC(data), n = 14)
+    val_tr <- as.numeric(last(tr_obj$tr))
+    val_th <- as.numeric(last(tr_obj$trueHigh))
+    val_tl <- as.numeric(last(tr_obj$trueLow))
+    val_atr <- as.numeric(last(atr_obj$atr))
+    
     div(
       class = "w-100",
       style = "display: flex; align-items: start; justify-content: space-between; color: white;",
       # 1. 价格动态
       div(
-        style = "flex: 0 0 140px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 8px; margin-right: 8px;",
+        style = "flex: 0 0 130px; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 8px; margin-right: 8px;",
         span(style="font-size: 0.7rem; opacity: 0.7; display: block;", "最新价"),
-        span(style="font-size: 2.2rem; font-weight: 800; display: block; line-height: 1;", paste0("$", round(cl, 2))),
-        span(style=paste0("font-size: 0.95rem; font-weight: 600; color: ", diff_color, ";"),
+        span(style="font-size: 2rem; font-weight: 800; display: block; line-height: 1;", paste0("$", round(cl, 2))),
+        span(style=paste0("font-size: 0.9rem; font-weight: 600; color: ", diff_color, ";"),
              sprintf("%+.2f (%+.2f%%)", diff, pct_diff))
       ),
       
@@ -315,25 +382,35 @@ server <- function(input, output, session) {
         div(style="display: flex; justify-content: space-between;", span("BB Low", style="opacity: 0.7;"), span(round(as.numeric(latest_bb$dn), 2)))
       ),
       
-      # 3. MACD 强弱指标
+      # 3. MACD & RSI (强弱指标)
       div(
         style = "flex: 1; display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 0.7rem; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 8px; margin-right: 8px;",
-        div(style="font-weight: bold; opacity: 0.5; text-transform: uppercase; font-size: 0.6rem;", "MACD (12,26,9)"),
-        div(style="display: flex; justify-content: space-between;", span("DIF", style="color: #60a5fa;"), span(round(val_macd, 3))),
-        div(style="display: flex; justify-content: space-between;", span("DEA", style="color: #f87171;"), span(round(val_msig, 3))),
+        div(style="font-weight: bold; opacity: 0.5; text-transform: uppercase; font-size: 0.6rem;", "MACD & RSI"),
+        div(style="display: flex; justify-content: space-between;", span("DIF", style="color: #60a5fa;"), span(round(val_macd, 2))),
+        div(style="display: flex; justify-content: space-between;", span("DEA", style="color: #f87171;"), span(round(val_msig, 2))),
         div(style="display: flex; justify-content: space-between;", span("MACD", style="font-weight: bold;"), 
-            span(round(val_mhist, 3), style=paste0("color: ", if(val_mhist >= 0) "#2ecc71" else "#e74c3c"))),
+            span(round(val_mhist, 2), style=paste0("color: ", if(val_mhist >= 0) "#2ecc71" else "#e74c3c"))),
         div(style="display: flex; justify-content: space-between;", span("RSI(14)", style="color: #fbbf24; font-weight: bold;"), span(round(val_rsi, 1)))
       ),
       
-      # 4. ADX 趋向指标
+      # 4. ADX (趋向指标)
       div(
-        style = "flex: 1.1; display: grid; grid-template-columns: 1.2fr 1fr; gap: 2px 8px; font-size: 0.7rem;",
-        div(style="grid-column: span 2; font-weight: bold; opacity: 0.5; text-transform: uppercase; font-size: 0.6rem;", "ADX 趋向体系"),
+        style = "flex: 1; display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 0.7rem; border-right: 1px solid rgba(255,255,255,0.2); padding-right: 8px; margin-right: 8px;",
+        div(style="font-weight: bold; opacity: 0.5; text-transform: uppercase; font-size: 0.6rem;", "ADX 趋向指标"),
         div(style="display: flex; justify-content: space-between;", span("ADX", style="font-weight: bold;"), span(round(val_adx, 1))),
-        div(style="display: flex; justify-content: space-between;", span("DX"), span(round(val_dx, 1))),
         div(style="display: flex; justify-content: space-between;", span("DI+", style="color: #60a5fa;"), span(round(val_dip, 1))),
-        div(style="display: flex; justify-content: space-between;", span("DI-", style="color: #f87171;"), span(round(val_din, 1)))
+        div(style="display: flex; justify-content: space-between;", span("DI-", style="color: #f87171;"), span(round(val_din, 1))),
+        div(style="display: flex; justify-content: space-between;", span("DX", style="opacity: 0.7;"), span(round(val_dx, 1)))
+      ),
+      
+      # 5. TR & ATR (波动详情)
+      div(
+        style = "flex: 1.1; display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 0.7rem;",
+        div(style="font-weight: bold; opacity: 0.5; text-transform: uppercase; font-size: 0.6rem;", "TR/ATR 波动率"),
+        div(style="display: flex; justify-content: space-between;", span("TR", style="font-weight: bold; color: #ff5e00;"), span(round(val_tr, 2))),
+        div(style="display: flex; justify-content: space-between;", span("ATR (14)", style="font-weight: bold;"), span(round(val_atr, 2))),
+        div(style="display: flex; justify-content: space-between;", span("T-High", style="opacity: 0.7;"), span(round(val_th, 2))),
+        div(style="display: flex; justify-content: space-between;", span("T-Low", style="opacity: 0.7;"), span(round(val_tl, 2)))
       )
     )
   })
@@ -546,7 +623,157 @@ server <- function(input, output, session) {
       }
     )
   })
+
+  # ---------------------------------------------------------
+  # 交易策略回测引擎逻辑
+  # ---------------------------------------------------------
+  bt_results <- reactiveVal(NULL)
   
+  # 策略模板库
+  observeEvent(input$bt_strategy, {
+    if (input$bt_strategy == "custom") return()
+    
+    file_path <- sprintf("trading_strategy/%s.R", input$bt_strategy)
+    if (file.exists(file_path)) {
+      code_lines <- readLines(file_path, warn = FALSE)
+      updateTextAreaInput(session, "strategy_code", value = paste(code_lines, collapse = "\n"))
+    }
+  })
+  
+  observeEvent(input$run_backtest, {
+    data <- processed_ticker_data()
+    req(data)
+    
+    # 消息提示
+    showNotification("正在运行自定义策略回测...", type = "message")
+    
+    # 运行回测引擎
+    res <- tryCatch({
+       # 鲁棒性处理：如果输入为空则默认为 0
+       sl_val <- if(is.na(input$stop_loss)) 0 else input$stop_loss
+       tp_val <- if(is.na(input$take_profit)) 0 else input$take_profit
+       
+       run_simple_backtest(
+        data = data,
+        strategy_code = input$strategy_code,
+        init_capital = input$init_capital,
+        trade_pct = input$trade_size,
+        stop_loss_pct = sl_val,
+        take_profit_pct = tp_val
+      )
+    }, error = function(e) {
+      showNotification(paste("策略执行错误:", e$message), type = "error")
+      return(NULL)
+    })
+    
+    if(!is.null(res)) {
+      bt_results(res)
+      showNotification("回测完成！", type = "message")
+    }
+  })
+  
+  # 回测交易记录表格
+  output$bt_trade_log <- renderTable({
+    res <- bt_results()
+    if (is.null(res) || nrow(res$log) == 0) return(data.frame(Message = "尚无交易记录，请配置策略后启动回测。"))
+    
+    df <- res$log
+    # 颜色渲染函数
+    color_pnl <- function(val, text) {
+      if (is.na(val)) return("--")
+      col <- if(val > 0) "#2ecc71" else if(val < 0) "#e74c3c" else "inherit"
+      sprintf("<span style='color: %s; font-weight: bold;'>%s</span>", col, text)
+    }
+    
+    # 格式化输出
+    df_display <- data.frame(
+      日期 = as.character(df$Date),
+      动作 = df$Action,
+      成交价 = round(df$Price, 2),
+      数量 = round(df$Shares, 2),
+      账户余额 = round(df$Total, 2),
+      原因 = df$Reason,
+      盈亏 = mapply(color_pnl, df$PnL, sprintf("%+.2f", df$PnL)),
+      "盈亏%" = mapply(color_pnl, df$PnL_Pct, sprintf("%+.2f%%", df$PnL_Pct)),
+      "最大浮盈" = ifelse(is.na(df$MaxProfit_Trade), "--", sprintf("%.2f%%", df$MaxProfit_Trade)),
+      "最大回撤" = ifelse(is.na(df$MaxDD_Trade), "--", sprintf("%.2f%%", df$MaxDD_Trade)),
+      持仓天数 = ifelse(is.na(df$HoldDays), "--", as.character(df$HoldDays))
+    )
+    df_display
+  }, striped = TRUE, hover = TRUE, align = "c", sanitize.text.function = function(x) x)
+  
+  # 绩效分析面板
+  output$bt_performance_stats <- renderUI({
+    res <- bt_results()
+    data <- processed_ticker_data()
+    if (is.null(res) || is.null(data)) return(p("待回测完成后生成报告...", class="text-muted"))
+    
+    log <- res$log
+    init <- input$init_capital
+    final <- tail(res$equity, 1)
+    profit <- final - init
+    roi <- (profit / init) * 100
+    
+    # 时间范围计算
+    start_date <- start(data)
+    end_date <- end(data)
+    total_days <- as.numeric(difftime(end_date, start_date, units = "days"))
+    annualized_roi <- ((final / init)^(365 / total_days) - 1) * 100
+    
+    # 交易统计
+    sells <- log[log$Action == "SELL", ]
+    win_rate <- 0
+    avg_pnl <- 0
+    avg_hold <- 0
+    max_win_amt <- 0; max_win_pct <- 0
+    max_loss_amt <- 0; max_loss_pct <- 0
+    
+    if(nrow(sells) > 0) {
+      win_rate <- (sum(sells$PnL > 0) / nrow(sells)) * 100
+      avg_pnl <- mean(sells$PnL, na.rm = TRUE)
+      avg_hold <- mean(sells$HoldDays, na.rm = TRUE)
+      max_win_amt <- max(sells$PnL, na.rm = TRUE)
+      max_win_pct <- max(sells$PnL_Pct, na.rm = TRUE)
+      max_loss_amt <- min(sells$PnL, na.rm = TRUE)
+      max_loss_pct <- min(sells$PnL_Pct, na.rm = TRUE)
+    }
+    
+    tagList(
+      div(class = "alert alert-primary mb-3 py-2",
+          span(bsicons::bs_icon("info-circle"), " "),
+          strong("回测基础信息："),
+          sprintf("策略: %s | 股票: %s | 周期: %s 至 %s", 
+                  input$bt_strategy, current_ticker(), start_date, end_date)
+      ),
+      layout_column_wrap(
+        width = 1/4,
+        value_box(title = "累计收益率", value = sprintf("%+.2f%%", roi), theme = if(roi>=0) "success" else "danger"),
+        value_box(title = "年化收益率", value = sprintf("%+.2f%%", annualized_roi), theme = "light"),
+        value_box(title = "回测胜率", value = sprintf("%.1f%%", win_rate), theme = "info"),
+        value_box(title = "总交易次数", value = nrow(log), theme = "light")
+      ),
+      layout_column_wrap(
+          style = "margin-top: 15px;",
+          width = 1/3,
+          div(class = "p-2 border rounded bg-white",
+              div(class="small text-muted", "盈利能力"),
+              div(strong("平均盈亏: "), sprintf("$%.2f", avg_pnl)),
+              div(strong("最大单笔盈利: "), sprintf("$%.2f (%.2f%%)", max_win_amt, max_win_pct))
+          ),
+          div(class = "p-2 border rounded bg-white",
+              div(class="small text-muted", "风险控制"),
+              div(strong("持仓习惯: "), sprintf("平均 %.1f 天", avg_hold)),
+              div(strong("最大单笔亏损: "), sprintf("$%.2f (%.2f%%)", max_loss_amt, max_loss_pct))
+          ),
+          div(class = "p-2 border rounded bg-white",
+              div(class="small text-muted", "资金状态"),
+              div(strong("初始资金: "), sprintf("$%s", init)),
+              div(strong("最终权益: "), sprintf("$%.2f", final))
+          )
+      )
+    )
+  })
+
   # ---------------------------------------------------------
   # 简化后的绘图逻辑：确保 subset 与 visible_data 严格一致
   # ---------------------------------------------------------
@@ -578,7 +805,7 @@ server <- function(input, output, session) {
     if ("SMA" %in% selected_indicators) {
       if (n_points >= 5) cs <- add_SMA(n = 5, col = "blue")
       if (n_points >= 20) cs <- add_SMA(n = 20, col = "red")
-      if (n_points >= 50) cs <- add_SMA(n = 50, col = "green")
+      if (n_points >= 50) cs <- add_SMA(n = 50, col = "orange")
       if (n_points >= 100) cs <- add_SMA(n = 100, col = "purple")
     }
     
@@ -623,23 +850,82 @@ server <- function(input, output, session) {
       cs <- add_TA(CLV(HLC(data)))
     }
     
+    # TR - 真实波幅 (使用 add_TA)
+    if ("TR" %in% selected_indicators) {
+      cs <- add_TA(TR(HLC(data))$tr, col = "darkred")
+    }
+    
+    # ATR - 平均真实波幅 (使用 add_TA)
+    if ("ATR" %in% selected_indicators) {
+      cs <- add_TA(ATR(HLC(data), n = 14)$atr, col = "darkblue")
+    }
+    
+    # SuperTrend - 超级趋势线 (Overlay on main chart)
+    if ("SuperTrend" %in% selected_indicators) {
+      st_res <- SuperTrend(HLC(data), n = 10, factor = 3)
+      st_line <- st_res$supertrend
+      st_dir <- st_res$direction
+      
+      # 分离上涨和下跌线条进行着色
+      st_up <- st_line; st_up[st_dir == -1] <- NA
+      st_down <- st_line; st_down[st_dir == 1] <- NA
+      
+      cs <- add_TA(st_up, on = 1, col = "green", lwd = 2)
+      cs <- add_TA(st_down, on = 1, col = "red", lwd = 2)
+    }
+    
+    # --- 回测交易数据准备 ---
+    res <- bt_results()
+    
     # 计算极值 (直接在 visible_data 上操作)
     hi_v <- Hi(visible_data); lo_v <- Lo(visible_data)
     max_idx <- which.max(hi_v); max_val <- as.numeric(hi_v[max_idx])
     min_idx <- which.min(lo_v); min_val <- as.numeric(lo_v[min_idx])
     
-    if (input$show_points && length(max_idx) > 0) {
-      pk_xts <- xts(max_val, order.by = index(visible_data)[max_idx])
-      vl_xts <- xts(min_val, order.by = index(visible_data)[min_idx])
-      
-      cs <- add_Series(pk_xts, type="p", pch=18, cex=2, col="red", on=1)
-      cs <- add_Series(vl_xts, type="p", pch=18, cex=2, col="darkgreen", on=1)
-    }
-    
+    # --- 绘图后叠加：文字与图标 ---
+    # 基础图表绘制
     print(cs)
     
-    # 添加文字标注
-    if (input$show_points) {
+    # 在 Plot 结束后，使用标准 R 绘图函数叠加 (叠加在当前活动设备上)
+    if (!is.null(res) && nrow(res$log) > 0) {
+      log <- res$log
+      # 仅处理可见范围内的记录
+      visible_log <- log[log$Date >= start(visible_data), ]
+      
+      if(nrow(visible_log) > 0) {
+        # 允许在绘图区外书写
+        par(xpd = TRUE)
+        
+        for(k in 1:nrow(visible_log)) {
+          # 找到当前日期在可见数据中的索引位置（即 X 坐标）
+          match_idx <- which(index(visible_data) == as.Date(visible_log$Date[k]))
+          
+          if(length(match_idx) > 0) {
+            target_date <- as.Date(visible_log$Date[k])
+            # 获取该日的最高/最低价作为基准
+            day_hi <- as.numeric(Hi(visible_data[target_date]))
+            day_lo <- as.numeric(Lo(visible_data[target_date]))
+            
+            if(visible_log$Action[k] == "BUY") {
+              # 买入：在当日最低价下方
+              y_icon <- day_lo * 0.985
+              points(x = match_idx, y = y_icon, pch = 24, col = "darkgreen", bg = "#2ecc71", cex = 1.5)
+              text(x = match_idx, y = y_icon, labels = paste(visible_log$Action[k], visible_log$Reason[k]), 
+                   pos = 1, col = "#27ae60", cex = 0.8, font = 2)
+            } else {
+              # 卖出：在当日最高价上方
+              y_icon <- day_hi * 1.015
+              points(x = match_idx, y = y_icon, pch = 25, col = "darkred", bg = "#e74c3c", cex = 1.5)
+              text(x = match_idx, y = y_icon, labels = paste(visible_log$Action[k], visible_log$Reason[k]), 
+                   pos = 3, col = "#c0392b", cex = 0.8, font = 2)
+            }
+          }
+        }
+      }
+    }
+
+    # 叠加极值文字
+    if (input$show_points && length(max_idx) > 0) {
       try({
         text(x = max_idx, y = max_val, labels = paste0("高: ", round(max_val, 2)), pos=3, col="red", font=2)
         text(x = min_idx, y = min_val, labels = paste0("低: ", round(min_val, 2)), pos=1, col="darkgreen", font=2)
