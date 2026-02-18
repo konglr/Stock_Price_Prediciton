@@ -1,3 +1,4 @@
 {
     "r.lsp.promptToInstall": false
+    "positron.assistant.enabledProviders": ["openai-compatible"]
 }

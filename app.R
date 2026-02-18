@@ -40,7 +40,7 @@ ui <- page_sidebar(
     pickerInput(
       inputId = "ticker_preset",
       label = "常用股票选择",
-      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "SQQQ", "^IXIC", "000001.SZ"),
+      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "ROCL" , "SQQQ", "^IXIC", "000001.SZ", ),
       selected = "AAPL",
       options = list(`live-search` = TRUE)
     ),
@@ -79,19 +79,28 @@ ui <- page_sidebar(
     checkboxGroupInput(
       inputId = "indicators",
       label = NULL,
-      choices = c(
-        "SMA (简单移动平均)" = "SMA",
-        "BBands (布林带)" = "BBands",
-        "MACD" = "MACD",
-        "RSI (相对强弱指标)" = "RSI",
-        "ADX (平均趋向指标)" = "ADX",
-        "SAR (抛物线转向)" = "SAR",
-        "OBV (能量潮)" = "OBV",
-        "MFI (资金流量指标)" = "MFI",
-        "CLV (收盘位置值)" = "CLV",
-        "TR (真实波幅)" = "TR",
-        "ATR (平均真实波幅)" = "ATR",
-        "SuperTrend" = "SuperTrend"
+      choiceNames = list(
+        "SMA (简单移动平均)",
+        "BBands (布林带)",
+        "MACD",
+        "RSI (相对强弱指标)",
+        "ADX (平均趋向指标)",
+        "SAR (抛物线转向)",
+        "OBV (能量潮)",
+        "MFI (资金流量指标)",
+        "CLV (收盘位置值)",
+        tags$span(
+          "TR (真实波幅)", 
+          title = "TR（真实波幅）的计算\nTR 代表一个特定时段内价格运动的“真实”范围。为了确保将价格跳空考虑在内，TR 取以下三个值中的最大值：\n1. 当前时段最高价减去当前时段最低价 (High−Low)。\n2. 当前时段最高价与前一收盘价之差的绝对值 (|High−Previous Close|)。\n3. 当前时段最低价与前一收盘价之差的绝对值 (|Low−Previous Close|)。\n\n计算公式：\nTR = max[(High−Low), |High−Close_prev|, |Low−Close_prev|]"
+        ),
+        tags$span(
+          "ATR (平均真实波幅)", 
+          title = "ATR（平均真实波幅）的计算\nATR 是对上述 TR 值进行的平滑平均处理，用以反映一段时间内的平均波动水平。\n1. 周期设置：标准默认设置通常为 14 个周期，但在 Supertrend 等指标中也常使用 10 个周期。\n2. 计算方法：\n   ◦ 递归平滑法（Wilder 原版）：这是最常用的方法，公式为： ATR=(前一日ATR×(n-1)+当日TR)/n。 例如 14 周期的 ATR 计算：[(前一日ATR×13)+当前TR]/14。\n   ◦ 简单移动平均法 (SMA)：直接计算指定周期内 TR 的算术平均值。\n   ◦ 指数移动平均法 (EMA)：部分交易系统为了提高对近期波动的敏感度，会使用 EMA 对 TR 进行平滑。"
+        ),
+        "SuperTrend"
+      ),
+      choiceValues = list(
+        "SMA", "BBands", "MACD", "RSI", "ADX", "SAR", "OBV", "MFI", "CLV", "TR", "ATR", "SuperTrend"
       ),
       selected = c("SMA")
     ),
@@ -174,43 +183,48 @@ ui <- page_sidebar(
         nav_panel(
           title = "1. 策略与资金配置",
           div(class = "p-3",
-              layout_column_wrap(
-                width = 1/2,
-                div(
-                  h6("资金管理"),
-                  numericInput("init_capital", "初始资金 (USD)", value = 10000, min = 100),
-                  sliderInput("trade_size", "单笔交易仓位 (%)", min = 1, max = 100, value = 20)
+              layout_column_wrap(width = 1/4,
+                div(class = "bt-col-sep",
+                    span(class="bt-section-title", "① 资金管理"),
+                    numericInput("init_capital", "初始本金 (USD)", value = 10000, min = 100),
+                    helpText("账户起始本金额度")
                 ),
+                # 2. 资金策略
+                div(class = "bt-col-sep",
+                    span(class="bt-section-title", "② 资金策略"),
+                    selectInput("entry_rule", "建仓规则", choices = c("固定百分比" = "fixed_pct", "固定股数" = "fixed_qty"), selected = "fixed_pct"),
+                    numericInput("trade_size", "建仓比例 (%)", value = 20, min = 1, max = 100),
+                    hr(),
+                    selectInput("pyramid_rule", "加仓规则", choices = c("不启用" = "none", "正金字塔" = "up", "等额加仓" = "equal"), selected = "none"),
+                    numericInput("pyramid_size", "加仓比例 (%)", value = 10, min = 0, max = 100)
+                ),
+                # 3. 风险管理
+                div(class = "bt-col-sep",
+                    span(class="bt-section-title", "③ 风险管理"),
+                    numericInput("stop_loss", "止损规则 (%)", value = 0, min = 0),
+                    numericInput("take_profit", "止盈规则 (%)", value = 0, min = 0),
+                    helpText("设置为 0 禁用规则")
+                ),
+                # 4. 交易策略
                 div(
-                  h6("策略引擎与逻辑编辑器"),
-                  layout_column_wrap(
-                    width = 1/2,
-                    div(
-                      selectInput("bt_strategy", "快速代码模板", 
-                                  choices = c("自定义代码" = "custom",
-                                             "SuperTrend 趋势追踪" = "supertrend", 
-                                             "ADX + BBands 趋势突破" = "adx_bbands",
-                                             "SMA 交叉 (5/20)" = "sma_cross",
-                                             "RSI 超买超卖" = "rsi_logic"),
-                                  selected = "supertrend"),
-                      layout_column_wrap(
-                        width = 1/2,
-                        numericInput("stop_loss", "止损位 (%) (0为不设)", value = 0, min = 0),
-                        numericInput("take_profit", "止盈位 (%) (0为不设)", value = 0, min = 0)
-                      )
-                    ),
-                    div(
-                      textAreaInput("strategy_code", "策略信号逻辑 (R Code)", 
-                                    value = "", 
-                                    height = "180px",
-                                    placeholder = "在这里编写您的交易逻辑..."),
-                      tags$style("#strategy_code { font-family: 'Courier New', monospace; font-size: 12px; background: #fdf6e3; }")
-                    )
-                  )
+                    span(class="bt-section-title", "④ 交易策略"),
+                    selectInput("bt_strategy", "代码模板", 
+                                choices = c("自定义代码" = "custom",
+                                           "SuperTrend 趋势追踪" = "supertrend", 
+                                           "ADX + BBands 趋势突破" = "adx_bbands",
+                                           "SMA 交叉 (5/20)" = "sma_cross",
+                                           "RSI 超买超卖" = "rsi_logic"),
+                                selected = "supertrend"),
+                    textAreaInput("strategy_code", "信号逻辑代码", value = "", height = "165px", placeholder = "代码...")
                 )
               ),
+              tags$style("
+                .bt-col-sep { border-right: 1px solid #dee2e6; height: 100%; padding-right: 15px; }
+                .bt-section-title { font-weight: bold; margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; display: inline-block; }
+                #strategy_code { font-family: 'Courier New', monospace !important; font-size: 12px !important; background: #fdf6e3 !important; }
+              "),
               hr(),
-              actionButton("run_backtest", "启动历史回测", class = "btn-success w-100")
+              actionButton("run_backtest", "启动历史回测引擎", class = "btn-success w-100", icon = icon("rocket"))
           )
         ),
         nav_panel(
@@ -221,8 +235,13 @@ ui <- page_sidebar(
         ),
         nav_panel(
           title = "3. 绩效分析报告",
-          div(class = "p-3",
-              uiOutput("bt_performance_stats")
+          div(class="p-3",
+            uiOutput("bt_performance_stats"),
+            hr(),
+            div(style="background: #fcfcfc; border-radius: 8px; padding: 15px;",
+              h6(bsicons::bs_icon("graph-up"), " 净值走势与回撤分析 (模拟 TradingView 样式)"),
+              plotOutput("bt_equity_plot", height = "450px")
+            )
           )
         )
       )
@@ -702,78 +721,141 @@ server <- function(input, output, session) {
     df_display
   }, striped = TRUE, hover = TRUE, align = "c", sanitize.text.function = function(x) x)
   
-  # 绩效分析面板
+  # 绩效分析面板指标 (响应时间跨度 + 全局对比)
   output$bt_performance_stats <- renderUI({
     res <- bt_results()
     data <- processed_ticker_data()
     if (is.null(res) || is.null(data)) return(p("待回测完成后生成报告...", class="text-muted"))
     
-    log <- res$log
-    init <- input$init_capital
-    final <- tail(res$equity, 1)
-    profit <- final - init
-    roi <- (profit / init) * 100
+    # 通用千分位格式化函数
+    fmt_c <- function(x) format(round(as.numeric(x), 2), big.mark=",")
     
-    # 时间范围计算
-    start_date <- start(data)
-    end_date <- end(data)
-    total_days <- as.numeric(difftime(end_date, start_date, units = "days"))
-    annualized_roi <- ((final / init)^(365 / total_days) - 1) * 100
+    # --- 1. 全局统计计算 ---
+    log_all <- res$log
+    sells_all <- log_all[log_all$Action == "SELL", ]
     
-    # 交易统计
-    sells <- log[log$Action == "SELL", ]
-    win_rate <- 0
-    avg_pnl <- 0
-    avg_hold <- 0
-    max_win_amt <- 0; max_win_pct <- 0
-    max_loss_amt <- 0; max_loss_pct <- 0
+    init_all <- res$equity[1]
+    final_all <- tail(res$equity, 1)
+    profit_all <- final_all - init_all
+    roi_all <- (profit_all / init_all) * 100
     
-    if(nrow(sells) > 0) {
-      win_rate <- (sum(sells$PnL > 0) / nrow(sells)) * 100
-      avg_pnl <- mean(sells$PnL, na.rm = TRUE)
-      avg_hold <- mean(sells$HoldDays, na.rm = TRUE)
-      max_win_amt <- max(sells$PnL, na.rm = TRUE)
-      max_win_pct <- max(sells$PnL_Pct, na.rm = TRUE)
-      max_loss_amt <- min(sells$PnL, na.rm = TRUE)
-      max_loss_pct <- min(sells$PnL_Pct, na.rm = TRUE)
-    }
+    win_rate_all <- if(nrow(sells_all)>0) (sum(sells_all$PnL > 0) / nrow(sells_all)) * 100 else 0
+    max_p_pct_all <- if(nrow(sells_all)>0) max(sells_all$PnL_Pct, na.rm=TRUE) else 0
+    max_p_amt_all <- if(nrow(sells_all)>0) max(sells_all$PnL, na.rm=TRUE) else 0
+    max_l_pct_all <- if(nrow(sells_all)>0) min(sells_all$PnL_Pct, na.rm=TRUE) else 0
+    max_l_amt_all <- if(nrow(sells_all)>0) min(sells_all$PnL, na.rm=TRUE) else 0
+    
+    peaks_all <- cummax(res$equity)
+    max_dd_all <- min((res$equity - peaks_all) / peaks_all * 100)
+    
+    # --- 2. 周期统计计算 ---
+    days_to_show <- switch(input$period, "20天"=20, "1月"=30, "3月"=90, "6月"=180, "1年"=365, "2年"=730, "5年"=1825, "10年"=3650, 365)
+    start_date <- end(data) - days_to_show
+    
+    visible_idx <- which(index(data) >= start_date)
+    v_equity <- res$equity[visible_idx]
+    v_log <- res$log[res$log$Date >= start_date, ]
+    v_sells <- v_log[v_log$Action == "SELL", ]
+    
+    init_v <- v_equity[1]
+    final_v <- tail(v_equity, 1)
+    profit_v <- final_v - init_v
+    roi_v <- (profit_v / init_v) * 100
+    
+    win_rate_v <- if(nrow(v_sells)>0) (sum(v_sells$PnL > 0) / nrow(v_sells)) * 100 else 0
+    max_p_pct_v <- if(nrow(v_sells)>0) max(v_sells$PnL_Pct, na.rm=TRUE) else 0
+    max_p_amt_v <- if(nrow(v_sells)>0) max(v_sells$PnL, na.rm=TRUE) else 0
+    max_l_pct_v <- if(nrow(v_sells)>0) min(v_sells$PnL_Pct, na.rm=TRUE) else 0
+    max_l_amt_v <- if(nrow(v_sells)>0) min(v_sells$PnL, na.rm=TRUE) else 0
+    
+    v_peaks <- cummax(v_equity)
+    v_max_dd <- min((v_equity - v_peaks) / v_peaks * 100)
     
     tagList(
-      div(class = "alert alert-primary mb-3 py-2",
-          span(bsicons::bs_icon("info-circle"), " "),
-          strong("回测基础信息："),
-          sprintf("策略: %s | 股票: %s | 周期: %s 至 %s", 
-                  input$bt_strategy, current_ticker(), start_date, end_date)
-      ),
+      # 第一行：项目全局 (7 列)
+      h6(bsicons::bs_icon("archive"), " 1. 项目全生命周期 (Global Summary)", class="mb-3", style="color: #6c757d; font-weight: bold;"),
       layout_column_wrap(
-        width = 1/4,
-        value_box(title = "累计收益率", value = sprintf("%+.2f%%", roi), theme = if(roi>=0) "success" else "danger"),
-        value_box(title = "年化收益率", value = sprintf("%+.2f%%", annualized_roi), theme = "light"),
-        value_box(title = "回测胜率", value = sprintf("%.1f%%", win_rate), theme = "info"),
-        value_box(title = "总交易次数", value = nrow(log), theme = "light")
+        width = 1/7,
+        style = "margin-bottom: 25px;",
+        value_box(title = "初期总投入", value = sprintf("$%s", fmt_c(init_all)), theme = "secondary"),
+        value_box(title = "累计总收益", value = sprintf("$%s (%+.2f%%)", fmt_c(profit_all), roi_all), theme = if(profit_all>=0) "success" else "danger"),
+        value_box(title = "总胜率", value = sprintf("%.1f%%", win_rate_all), theme = "info"),
+        value_box(title = "交易总次数", value = nrow(sells_all), theme = "light"),
+        value_box(title = "最大单笔收益", value = sprintf("$%s (%+.2f%%)", fmt_c(max_p_amt_all), max_p_pct_all), theme = "success"),
+        value_box(title = "最大单笔亏损", value = sprintf("$%s (%.2f%%)", fmt_c(max_l_amt_all), max_l_pct_all), theme = "danger"),
+        value_box(title = "全局最大回撤", value = sprintf("%.2f%%", max_dd_all), theme = "danger")
       ),
+      
+      # 第二行：所选周期 (7 列)
+      h6(bsicons::bs_icon("calendar-range"), paste(" 2. 所选周期绩效 (", input$period, ")"), class="mb-3", style="color: #6c757d; font-weight: bold;"),
       layout_column_wrap(
-          style = "margin-top: 15px;",
-          width = 1/3,
-          div(class = "p-2 border rounded bg-white",
-              div(class="small text-muted", "盈利能力"),
-              div(strong("平均盈亏: "), sprintf("$%.2f", avg_pnl)),
-              div(strong("最大单笔盈利: "), sprintf("$%.2f (%.2f%%)", max_win_amt, max_win_pct))
-          ),
-          div(class = "p-2 border rounded bg-white",
-              div(class="small text-muted", "风险控制"),
-              div(strong("持仓习惯: "), sprintf("平均 %.1f 天", avg_hold)),
-              div(strong("最大单笔亏损: "), sprintf("$%.2f (%.2f%%)", max_loss_amt, max_loss_pct))
-          ),
-          div(class = "p-2 border rounded bg-white",
-              div(class="small text-muted", "资金状态"),
-              div(strong("初始资金: "), sprintf("$%s", init)),
-              div(strong("最终权益: "), sprintf("$%.2f", final))
-          )
+        width = 1/7,
+        value_box(title = "周期起始投入", value = sprintf("$%s", fmt_c(init_v)), theme = "secondary"),
+        value_box(title = "周期内收益", value = sprintf("$%s (%+.2f%%)", fmt_c(profit_v), roi_v), theme = if(profit_v>=0) "success" else "danger"),
+        value_box(title = "周期胜率", value = sprintf("%.1f%%", win_rate_v), theme = "info"),
+        value_box(title = "周期交易次数", value = nrow(v_sells), theme = "light"),
+        value_box(title = "周期最大收益", value = sprintf("$%s (%.2f%%)", fmt_c(max_p_amt_v), max_p_pct_v), theme = "success"),
+        value_box(title = "周期最大亏损", value = sprintf("$%s (%.2f%%)", fmt_c(max_l_amt_v), max_l_pct_v), theme = "danger"),
+        value_box(title = "周期最大回撤", value = sprintf("%.2f%%", v_max_dd), theme = "danger")
       )
     )
   })
-
+  
+  # TradingView 风格权益曲线绘图 (响应时间跨度)
+  output$bt_equity_plot <- renderPlot({
+    res <- bt_results()
+    data <- processed_ticker_data()
+    if (is.null(res) || is.null(data)) return(NULL)
+    
+    days_to_show <- switch(input$period, "20天" = 20, "1月" = 30, "3月" = 90, "6月" = 180, "1年" = 365, "2年" = 730, "5年" = 1825, "10年" = 3650, 365)
+    start_dt <- end(data) - days_to_show
+    
+    visible_select <- index(data) >= start_dt
+    dates <- index(data)[visible_select]
+    equity <- res$equity[visible_select]
+    
+    # 1. 计算局部回撤
+    peaks <- cummax(equity)
+    dd_pct <- (equity - peaks) / peaks * 100
+    
+    # 2. 局部权益范围
+    y_min <- min(equity)
+    y_max <- max(equity)
+    scale_y <- function(val) { (val - y_min) / (y_max - y_min) * 75 }
+    
+    par(mar = c(3, 4, 3, 4), bg = "#ffffff")
+    plot.new()
+    plot.window(xlim = range(dates), ylim = c(-20, 100))
+    
+    # 绘制回撤背景 (顶部向下)
+    for(i in seq(1, length(dates), length.out = min(length(dates), 400))) {
+        rect(dates[i], 85 + (dd_pct[i]/100 * 15), dates[i], 100, col = "#f1e1ff", border = NA)
+    }
+    
+    # 绘制渐变曲线
+    polygon(c(dates, rev(dates)), c(scale_y(equity), rep(0, length(dates))), 
+            col = rgb(46, 204, 113, 50, maxColorValue = 255), border = NA)
+    lines(dates, scale_y(equity), col = "#2ecc71", lwd = 2.5)
+    
+    # Y-轴增加详细刻度
+    y_ticks <- pretty(c(y_min, y_max), n = 6)
+    axis(2, at = scale_y(y_ticks), labels = sprintf("$%.0f", y_ticks), las = 1, cex.axis = 0.8)
+    
+    # X-轴：增加详细且对齐的日期标识
+    # 动态生成 10 个均匀分布的日期刻度
+    x_at <- seq(from = min(dates), to = max(dates), length.out = 10)
+    axis.Date(1, at = x_at, format = "%m-%d", cex.axis = 0.8, col = "#e0e0e0")
+    
+    # 增加垂直网格线辅助对齐
+    abline(v = x_at, col = "#f0f0f0", lty = "dotted")
+    # 增加水平网格线
+    abline(h = scale_y(y_ticks), col = "#f0f0f0", lty = "dotted")
+    
+    legend("bottomright", legend = c("策略净值"), col = c("#2ecc71"), lty = 1, bty = "n", cex = 0.9)
+    mtext(paste("Time Span:", input$period), side = 3, line = -1, adj = 0.98, col = "#bdc3c7", cex = 0.7)
+    mtext("资金回撤分布(%)", side = 3, line = -2, adj = 0.05, col = "#9b59b6", cex = 0.7)
+  })
+  
   # ---------------------------------------------------------
   # 简化后的绘图逻辑：确保 subset 与 visible_data 严格一致
   # ---------------------------------------------------------
