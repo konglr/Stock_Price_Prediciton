@@ -22,7 +22,7 @@ message = client.messages.create(
             "content": [
                 {
                     "type": "text",
-                    "text": "你好，请介绍一下你自己。你的MiniMax版本是什么？,如果我用openai的sdk调用你，如何写这个python代码？"
+                    "text": "你好，请介绍一下你自己。你的MiniMax版本是什么？"
                 }
             ]
         }

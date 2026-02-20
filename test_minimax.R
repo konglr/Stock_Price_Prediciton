@@ -15,7 +15,7 @@ if (apiKey == "") {
 cat("API Key 已加载:", substr(apiKey, 1, 10), "...\n")
 
 # 测试请求
-system_prompt <- "你是一位有用的AI助手。请用一句话介绍你自己。"
+system_prompt <- "你是一位有用的AI助手。请用一句话介绍你自己。你的版本是哪一个？ 你可以做哪些事情？"
 
 api_url <- "https://api.minimax.chat/v1/text/chatcompletion_v2"
 
