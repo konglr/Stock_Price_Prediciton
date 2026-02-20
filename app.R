@@ -40,7 +40,7 @@ ui <- page_sidebar(
     pickerInput(
       inputId = "ticker_preset",
       label = "常用股票选择",
-      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "ROCL" , "SQQQ", "^IXIC", "000001.SZ", ),
+      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "ROCL", "SQQQ", "^IXIC", "000001.SZ"),
       selected = "AAPL",
       options = list(`live-search` = TRUE)
     ),
@@ -116,7 +116,7 @@ ui <- page_sidebar(
         "Gemini 2.5 Flash (平衡)" = "gemini-2.5-flash",
         "Gemini 2.5 Flash-lite (更快)" = "gemini-2.5-flash-lite",
         "Gemini 2.0 Flash (更快)" = "gemini-2.0-flash-exp",
-        "Gemini 1.5 Pro " = "gemini-1.5-pro",
+        "Gemini 1.5 Pro" = "gemini-1.5-pro",
         "Gemini 1.5 Flash" = "gemini-1.5-flash"
       ),
       selected = "gemini-2.5-flash"
