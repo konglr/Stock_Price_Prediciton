@@ -13,6 +13,9 @@ library(bslib)
 library(httr2)
 library(jsonlite)
 
+# 加载 .Renviron 文件中的环境变量
+readRenviron(".Renviron")
+
 # 加载自定义外部函数
 source("functions/supertrend.R")
 source("functions/backtest.R")
@@ -33,7 +36,7 @@ ui <- page_sidebar(
   ),
   
   theme = bs_theme(version = 5, bootswatch = "flatly"),
-  title = "StockAI - Gemini股票智能预测",
+  title = "StockAI - AI股票智能预测",
   
   sidebar = sidebar(
     width = 300,
@@ -91,11 +94,11 @@ ui <- page_sidebar(
         "CLV (收盘位置值)",
         tags$span(
           "TR (真实波幅)", 
-          title = "TR（真实波幅）的计算\nTR 代表一个特定时段内价格运动的“真实”范围。为了确保将价格跳空考虑在内，TR 取以下三个值中的最大值：\n1. 当前时段最高价减去当前时段最低价 (High−Low)。\n2. 当前时段最高价与前一收盘价之差的绝对值 (|High−Previous Close|)。\n3. 当前时段最低价与前一收盘价之差的绝对值 (|Low−Previous Close|)。\n\n计算公式：\nTR = max[(High−Low), |High−Close_prev|, |Low−Close_prev|]"
+          title = "TR（真实波幅）的计算。TR 代表一个特定时段内价格运动的真实范围。为了确保将价格跳空考虑在内，TR 取以下三个值中的最大值：1. 当前时段最高价减去当前时段最低价 (High-Low)。2. 当前时段最高价与前一收盘价之差的绝对值。3. 当前时段最低价与前一收盘价之差的绝对值。计算公式：TR = max[(High-Low), abs(High-PrevClose), abs(Low-PrevClose)]"
         ),
         tags$span(
           "ATR (平均真实波幅)", 
-          title = "ATR（平均真实波幅）的计算\nATR 是对上述 TR 值进行的平滑平均处理，用以反映一段时间内的平均波动水平。\n1. 周期设置：标准默认设置通常为 14 个周期，但在 Supertrend 等指标中也常使用 10 个周期。\n2. 计算方法：\n   ◦ 递归平滑法（Wilder 原版）：这是最常用的方法，公式为： ATR=(前一日ATR×(n-1)+当日TR)/n。 例如 14 周期的 ATR 计算：[(前一日ATR×13)+当前TR]/14。\n   ◦ 简单移动平均法 (SMA)：直接计算指定周期内 TR 的算术平均值。\n   ◦ 指数移动平均法 (EMA)：部分交易系统为了提高对近期波动的敏感度，会使用 EMA 对 TR 进行平滑。"
+          title = "ATR（平均真实波幅）的计算。ATR 是对上述 TR 值进行的平滑平均处理，用以反映一段时间内的平均波动水平。1. 周期设置：标准默认设置通常为 14 个周期，但在 Supertrend 等指标中也常使用 10 个周期。2. 计算方法：递归平滑法（Wilder 原版）：这是最常用的方法，公式为 ATR=(前一日ATR*(n-1)+当日TR)/n。简单移动平均法 (SMA)：直接计算指定周期内 TR 的算术平均值。指数移动平均法 (EMA)：部分交易系统为了提高对近期波动的敏感度，会使用 EMA 对 TR 进行平滑。"
         ),
         "SuperTrend"
       ),
@@ -106,29 +109,29 @@ ui <- page_sidebar(
     ),
     
     hr(),
-    h5("Gemini AI 预测模型"),
-    # 新增：模型选择列表
+    h5("AI 预测模型"),
+    
+    # AI 提供商选择
     selectInput(
-      inputId = "ai_model",
-      label = "选择 AI 模型",
+      inputId = "ai_provider",
+      label = "选择 AI 提供商",
       choices = c(
-        "Gemini 3.0 Flash (最新)" = "gemini-3-flash",
-        "Gemini 2.5 Flash (平衡)" = "gemini-2.5-flash",
-        "Gemini 2.5 Flash-lite (更快)" = "gemini-2.5-flash-lite",
-        "Gemini 2.0 Flash (更快)" = "gemini-2.0-flash-exp",
-        "Gemini 1.5 Pro" = "gemini-1.5-pro",
-        "Gemini 1.5 Flash" = "gemini-1.5-flash"
+        "Google Gemini" = "gemini",
+        "MiniMax" = "minimax"
       ),
-      selected = "gemini-2.5-flash"
+      selected = "minimax"
     ),
-    # 修改：显示当前模型状态
+    
+    # 动态渲染模型选择
+    uiOutput("ai_model_ui"),
+    
+    # 显示当前模型状态
     div(
       class = "mb-2",
       span("当前使用: ", style = "font-size: 0.8rem; color: #666;"),
       uiOutput("selected_model_badge", inline = TRUE)
     ),
-    actionButton("run_ai", "运行 AI 全球联网预测", class = "btn-primary w-100"),
-    
+    actionButton("run_ai", "运行 AI 联网预测", class = "btn-primary w-100"),
 
     
     hr(),
@@ -172,7 +175,7 @@ ui <- page_sidebar(
     
     card(
       style = "margin-top: 10px;",
-      card_header("Gemini AI 深度研报 (含实时新闻与财务评估)"),
+      card_header("AI 深度研报 (含实时新闻与财务评估)"),
       card_body(uiOutput("ai_report_ui"))
     ),
     
@@ -253,22 +256,65 @@ ui <- page_sidebar(
 server <- function(input, output, session) {
   
   options(HTTPUserAgent = "Mozilla/5.0")
-  apiKey = Sys.getenv("GEMINI_API_KEY") # 从环境变量读取 API Key
+  
+  # API Keys 从环境变量读取
+  gemini_apiKey <- Sys.getenv("GEMINI_API_KEY")
+  minimax_apiKey <- Sys.getenv("MINIMAX_API_KEY")
   
   # 辅助函数：处理 NULL 值
   `%||%` <- function(a, b) if (!is.null(a)) a else b
   
+  # 动态渲染模型选择 UI
+  output$ai_model_ui <- renderUI({
+    provider <- input$ai_provider
+    
+    if (provider == "gemini") {
+      selectInput(
+        inputId = "ai_model",
+        label = "选择模型",
+        choices = c(
+          "Gemini 3.0 Flash (最新)" = "gemini-3-flash",
+          "Gemini 2.5 Flash (平衡)" = "gemini-2.5-flash",
+          "Gemini 2.5 Flash-lite (更快)" = "gemini-2.5-flash-lite",
+          "Gemini 2.0 Flash (更快)" = "gemini-2.0-flash-exp",
+          "Gemini 1.5 Pro" = "gemini-1.5-pro",
+          "Gemini 1.5 Flash" = "gemini-1.5-flash"
+        ),
+        selected = "gemini-2.5-flash"
+      )
+    } else if (provider == "minimax") {
+      selectInput(
+        inputId = "ai_model",
+        label = "选择模型",
+        choices = c(
+          "MiniMax M2.5" = "MiniMax-M2.5"
+        ),
+        selected = "MiniMax-M2.5"
+      )
+    }
+  })
+  
   # 在侧边栏显示当前选中的模型标签
   output$selected_model_badge <- renderUI({
-    model_name <- switch(input$ai_model,
-                         "gemini-3-flash" = "3.0 Flash",
-                         "gemini-2.5-flash" = "2.5 Flash",
-                         "gemini-2.5-flash-lite" = "2.5 Flash-lite",
-                         "gemini-2.0-flash-exp" = "2.0 Flash",
-                         "gemini-1.5-pro" = "1.5 Pro",
-                         "gemini-1.5-flash" = "1.5 Flash"
-    )
-    span(model_name, class = "badge bg-secondary", style = "font-size: 0.75rem;")
+    provider <- input$ai_provider
+    model <- input$ai_model %||% "gemini-2.5-flash"
+    
+    if (provider == "gemini") {
+      model_name <- switch(model,
+                         "gemini-3-flash" = "Gemini 3.0 Flash",
+                         "gemini-2.5-flash" = "Gemini 2.5 Flash",
+                         "gemini-2.5-flash-lite" = "Gemini 2.5 Flash-lite",
+                         "gemini-2.0-flash-exp" = "Gemini 2.0 Flash",
+                         "gemini-1.5-pro" = "Gemini 1.5 Pro",
+                         "gemini-1.5-flash" = "Gemini 1.5 Flash",
+                         model)
+      span(model_name, class = "badge bg-primary", style = "font-size: 0.75rem;")
+    } else {
+      model_name <- switch(model,
+                         "MiniMax-M2.5" = "MiniMax M2.5",
+                         model)
+      span(model_name, class = "badge bg-success", style = "font-size: 0.75rem;")
+    }
   })
   
   observeEvent(input$ticker_preset, {
@@ -463,7 +509,7 @@ server <- function(input, output, session) {
         items)
   })
   
-  # Gemini AI 联网预测逻辑
+  # AI 联网预测逻辑
   ai_prediction <- reactiveVal(NULL)
   ai_grounding <- reactiveVal(NULL)
   ai_loading <- reactiveVal(FALSE)
@@ -494,50 +540,82 @@ server <- function(input, output, session) {
     
     user_query <- paste0("股票代码: ", current_ticker(), "\n最近半年历史交易明细数据：\n", data_summary)
     
+    provider <- input$ai_provider
+    model_id <- input$ai_model %||% "gemini-2.5-flash"
+    
     tryCatch({
-      # 动态获取所选模型
-      model_id <- input$ai_model
-      api_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/", model_id, ":generateContent")
-      
-      resp <- request(api_url) %>%
-        req_url_query(key = apiKey) %>% 
-        req_method("POST") %>%
-        req_body_json(list(
-          contents = list(
-            list(
-              role = "user",
-              parts = list(list(text = user_query))
+      if (provider == "gemini") {
+        # Gemini API 调用
+        api_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/", model_id, ":generateContent")
+        
+        resp <- request(api_url) %>%
+          req_url_query(key = gemini_apiKey) %>% 
+          req_method("POST") %>%
+          req_body_json(list(
+            contents = list(
+              list(
+                role = "user",
+                parts = list(list(text = user_query))
+              )
+            ), 
+            systemInstruction = list(parts = list(list(text = system_prompt))), 
+            tools = list(
+              list(
+                google_search = setNames(list(), character(0))
+              )
+            ),
+            generationConfig = list(
+              temperature = 0.2
             )
-          ), 
-          systemInstruction = list(parts = list(list(text = system_prompt))), 
-          tools = list(
+          )) %>%
+          req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
+          req_perform()
+        
+        result <- resp_body_json(resp)
+        raw_text <- result$candidates[[1]]$content$parts[[1]]$text
+        
+        # 处理 Grounding Metadata
+        metadata <- result$candidates[[1]]$groundingMetadata
+        if (!is.null(metadata) && !is.null(metadata$groundingAttributions)) {
+          sources <- lapply(metadata$groundingAttributions, function(s) {
             list(
-              google_search = setNames(list(), character(0))
+              title = s$web$title %||% "网页来源",
+              uri = s$web$uri %||% "#"
             )
-          ),
-          generationConfig = list(
-            temperature = 0.2
-          )
-        )) %>%
-        req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
-        req_perform()
-      
-      result <- resp_body_json(resp)
-      raw_text <- result$candidates[[1]]$content$parts[[1]]$text
-      
-      # 处理 Grounding Metadata (来源参考)
-      metadata <- result$candidates[[1]]$groundingMetadata
-      if (!is.null(metadata) && !is.null(metadata$groundingAttributions)) {
-        sources <- lapply(metadata$groundingAttributions, function(s) {
-          list(
-            title = s$web$title %||% "网页来源",
-            uri = s$web$uri %||% "#"
-          )
-        })
-        ai_grounding(sources)
+          })
+          ai_grounding(sources)
+        }
+        
+      } else if (provider == "minimax") {
+        # MiniMax API 调用
+        api_url <- "https://api.minimax.chat/v1/text/chatcompletion_v2"
+        
+        resp <- request(api_url) %>%
+          req_method("POST") %>%
+          req_headers(
+            "Authorization" = paste0("Bearer ", minimax_apiKey),
+            "Content-Type" = "application/json"
+          ) %>%
+          req_body_json(list(
+            model = model_id,
+            messages = list(
+              list(role = "system", content = system_prompt),
+              list(role = "user", content = user_query)
+            ),
+            temperature = 0.2,
+            max_tokens = 1000
+          )) %>%
+          req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
+          req_perform()
+        
+        result <- resp_body_json(resp)
+        raw_text <- result$choices[[1]]$message$content
+        
+        # MiniMax 没有 grounding，返回空
+        ai_grounding(NULL)
       }
       
-      # 鲁棒性处理：从回答中提取 JSON 部分
+      # 解析 JSON
       json_start <- regexpr("\\{", raw_text)
       json_end <- regexpr("\\}[^\\}]*$", raw_text)
       if (json_start > 0 && json_end > 0) {
@@ -563,7 +641,9 @@ server <- function(input, output, session) {
     sources <- ai_grounding()
     
     if (is.null(res)) {
-      return(p("点击按钮启动 Gemini 联网投研深度分析", class="text-muted p-3 text-center"))
+      provider <- input$ai_provider
+      provider_name <- ifelse(provider == "gemini", "Gemini", "MiniMax")
+      return(p(paste("点击按钮启动", provider_name, "联网投研深度分析"), class="text-muted p-3 text-center"))
     }
     
     if (!is.null(res$error)) {
@@ -573,7 +653,11 @@ server <- function(input, output, session) {
     tagList(
       div(class="mb-3 d-flex align-items-center justify-content-between",
           h5(paste0("综合研判：", res$trend), class="text-primary fw-bold mb-0"),
-          span(class="badge bg-success", "Google Search 联网数据已接入")
+          if (input$ai_provider == "gemini") {
+            span(class="badge bg-success", "Google Search 联网数据已接入")
+          } else {
+            span(class="badge bg-info", "MiniMax AI 智能分析")
+          }
       ),
       
       div(class="row g-3",
@@ -627,8 +711,8 @@ server <- function(input, output, session) {
           )
       ),
       
-      # 渲染 Grounding 来源链接列表
-      if (!is.null(sources)) {
+      # 渲染 Grounding 来源链接列表 (仅 Gemini)
+      if (!is.null(sources) && input$ai_provider == "gemini") {
         div(class="mt-4 p-3 bg-light rounded",
             strong("🔍 信息来源与参考："),
             tags$ul(class="list-unstyled mt-2",
@@ -842,13 +926,11 @@ server <- function(input, output, session) {
     axis(2, at = scale_y(y_ticks), labels = sprintf("$%.0f", y_ticks), las = 1, cex.axis = 0.8)
     
     # X-轴：增加详细且对齐的日期标识
-    # 动态生成 10 个均匀分布的日期刻度
     x_at <- seq(from = min(dates), to = max(dates), length.out = 10)
     axis.Date(1, at = x_at, format = "%m-%d", cex.axis = 0.8, col = "#e0e0e0")
     
     # 增加垂直网格线辅助对齐
     abline(v = x_at, col = "#f0f0f0", lty = "dotted")
-    # 增加水平网格线
     abline(h = scale_y(y_ticks), col = "#f0f0f0", lty = "dotted")
     
     legend("bottomright", legend = c("策略净值"), col = c("#2ecc71"), lty = 1, bty = "n", cex = 0.9)
