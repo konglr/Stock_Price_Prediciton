@@ -1,4 +1,15 @@
 {
-    "r.lsp.promptToInstall": false
-    "positron.assistant.enabledProviders": ["openai-compatible"]
+    "python.defaultInterpreterPath": "/usr/local/bin/python3.14",
+    "r.lsp.promptToInstall": false,
+    "positron.assistant.enabledProviders": ["openai-compatible", "anthropic-compatible", "openrouter"],
+    "positron.assistant.models.custom": {
+}
+,
+"workbench.editorAssociations": {
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.parquet": "duckdb.dataFileViewer",
+    "*.csv": "duckdb.dataFileViewer",
+    "*.tsv": "duckdb.dataFileViewer"
+},
+
 }

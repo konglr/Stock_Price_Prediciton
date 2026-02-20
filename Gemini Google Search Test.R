@@ -2,7 +2,7 @@ library(httr2)
 library(jsonlite)
 
 # 1. 配置参数
-apiKey <- "AIzaSyBZhIF9oMieIuk4VMV-Qg_hsuP1hpNz6Y8" # 在此处填入您的 API Key（Canvas 环境下通常会自动处理）
+apiKey <- "AIzaSyBAbcxJWcS6YY_WIVnS8eR5p0LiYm3x7tM" # 在此处填入您的 API Key（Canvas 环境下通常会自动处理）
 model_endpoint <- "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 # 2. 构建联网搜索请求
