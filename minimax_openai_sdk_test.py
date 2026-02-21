@@ -15,7 +15,7 @@ client = OpenAI(
 
 # 使用 Chat Completions API
 response = client.chat.completions.create(
-    model="MiniMax-M2.1",  # 或 MiniMax-M2.5
+    model="MiniMax-M2.5",  # 或 MiniMax-M2.5
     messages=[
         {"role": "system", "content": "你是一个有用的AI助手。"},
         {"role": "user", "content": "你好，请介绍一下你自己。你的MiniMax版本是什么？"}

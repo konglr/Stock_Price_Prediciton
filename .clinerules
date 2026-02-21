@@ -1,0 +1,222 @@
+# Stock Price Prediction - Workspace Rules
+# This file defines rules for AI assistants working on this R/Shiny stock trading project
+
+## PROJECT CONTEXT
+
+- **Project Type**: R Shiny Web Application
+- **Purpose**: Stock price analysis, AI prediction, and trading strategy backtesting
+- **Main File**: app.R
+- **Framework**: Shiny (shiny, bslib)
+- **Data Sources**: Yahoo Finance (via quantmod)
+
+## TECHNOLOGY STACK
+
+### R Packages
+- **UI**: shiny, bslib, shinyWidgets, htmltools
+- **Data**: quantmod, tidyquant, TTR
+- **Visualization**: ggplot2, plotly
+- **HTTP**: httr2, jsonlite
+- **AI**: MiniMax API, Gemini API
+
+### Environment Variables (.Renviron)
+- GEMINI_API_KEY
+- MINIMAX_API_KEY
+- SILICONFLOW_API_KEY
+
+## CODE CONVENTIONS
+
+### Naming Conventions
+- Reactive functions: snake_case with underscore (e.g., `ticker_data`, `processed_ticker_data`)
+- Output IDs: snake_case (e.g., `output$ai_report_ui`)
+- Input IDs: snake_case (e.g., `input$ticker_custom`)
+- UI components: camelCase or snake_case consistently
+
+### NULL Handling
+Use the custom `%||%` operator for NULL handling:
+```r
+%||% <- function(a, b) if (!is.null(a)) a else b
+```
+
+### Reactivity Rules
+- All data access must be inside reactive context
+- Use `req()` to validate required inputs
+- Use `reactiveVal()` for storing mutable state
+
+## FILE STRUCTURE
+
+```
+Stock_Price_Prediction/
+├── app.R                      # Main Shiny application
+├── .Renviron                  # Environment variables
+├── functions/                 # Utility functions
+│   ├── supertrend.R
+│   └── backtest.R
+├── trading_strategy/           # Strategy templates
+│   ├── supertrend.R
+│   ├── adx_bbands.R
+│   ├── rsi_logic.R
+│   └── sma_cross.R
+└── Prediction Test/           # Experimental code
+```
+
+## COMMON PATTERNS
+
+### Reading Stock Data
+```r
+ticker_data <- reactive({
+  ticker <- current_ticker()
+  getSymbols(ticker, from = Sys.Date() - 3650, to = Sys.Date(), 
+             auto.assign = FALSE, src = "yahoo")
+})
+```
+
+### Processing Time Periods
+```r
+period_days <- reactive({
+  period_map <- c(
+    "20天" = 20, "1月" = 30, "3月" = 90, "6月" = 180,
+    "1年" = 360, "2年" = 720, "5年" = 1825, "10年" = 3650
+  )
+  as.numeric(period_map[input$period])
+})
+```
+
+### AI API Calls
+- Gemini: POST to `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+- MiniMax: POST to `https://api.minimax.chat/v1/text/chatcompletion_v2`
+
+### Chart Rendering
+```r
+output$plot <- renderPlot({
+  data <- processed_ticker_data()
+  cs <- chart_Series(data, name = current_ticker(), subset = subset_range)
+  # Add indicators
+  cs <- add_SMA(n = 20)
+  print(cs)
+})
+```
+
+## QUANTMOD CHART INDICATORS
+
+When using `chart_Series()` (the newer function), indicators use underscore prefix `add_`.
+
+### Standard Indicators (direct add_ functions)
+| Function | Description |
+|----------|-------------|
+| `add_Vo()` | Volume |
+| `add_SMA(n)` | Simple Moving Average |
+| `add_EMA(n)` | Exponential Moving Average |
+| `add_BBands(n)` | Bollinger Bands |
+| `add_MACD()` | MACD |
+| `add_RSI(n)` | RSI |
+| `add_ADX(n)` | ADX |
+
+### Unsupported Indicators (use add_TA())
+For indicators without dedicated `add_` functions, use generic `add_TA()`:
+```r
+# Parabolic SAR
+add_TA(SAR(HLC(data)), on = 1)
+
+# On-Balance Volume
+add_TA(OBV(Cl(data), Vo(data)))
+
+# Money Flow Index
+add_TA(MFI(HLC(data), Vo(data)))
+
+# Close Location Value
+add_TA(CLV(HLC(data)))
+
+# True Range
+add_TA(TR(HLC(data))$tr)
+
+# Average True Range
+add_TA(ATR(HLC(data), n = 14)$atr)
+
+# SuperTrend (custom implementation)
+st_res <- SuperTrend(HLC(data), n = 10, factor = 3)
+st_line <- st_res$supertrend
+st_dir <- st_res$direction
+st_up <- st_line; st_up[st_dir == -1] <- NA
+st_down <- st_line; st_down[st_dir == 1] <- NA
+add_TA(st_up, on = 1, col = "green", lwd = 2)
+add_TA(st_down, on = 1, col = "red", lwd = 2)
+```
+
+## IMPORTANT FUNCTIONS
+
+### Core Reactives
+- `ticker_data()` - Fetches raw stock data from Yahoo Finance
+- `processed_ticker_data()` - Applies time interval (daily/weekly/monthly/yearly)
+- `period_days()` - Converts period selection to number of days
+- `current_ticker()` - Gets uppercase ticker symbol
+
+### State Management
+- `bt_results()` - Stores backtesting results (reactiveVal)
+- `ai_prediction()` - Stores AI analysis results
+- `ai_grounding()` - Stores Google search grounding sources
+
+### Backtesting
+- `run_simple_backtest()` - Main backtesting function in functions/backtest.R
+
+## UI COMPONENTS
+
+### Sidebar Inputs
+- `ticker_preset` - Preset stock selection
+- `ticker_custom` - Custom ticker input
+- `period` - Time period slider
+- `interval` - K-line interval (daily/weekly/monthly/yearly)
+- `plot_type` - Chart type selection
+- `indicators` - Technical indicators checkboxes
+- `ai_provider` - AI provider selection (gemini/minimax)
+- `ai_model` - Model selection
+
+### Main Panel Outputs
+- `vbox_market_stats` - Key market statistics
+- `vbox_performance` - Performance metrics
+- `plot` - Stock price chart
+- `ai_report_ui` - AI analysis report
+- `bt_trade_log` - Backtest trade log
+- `bt_performance_stats` - Performance statistics
+- `bt_equity_plot` - Equity curve
+
+## API CONFIGURATION
+
+### Gemini API
+- Base URL: `https://generativelanguage.googleapis.com/v1beta`
+- Models: gemini-1.5-pro, gemini-2.5-flash, gemini-3-flash
+- Requires: Google Search grounding tool
+
+### MiniMax API
+- Base URL: `https://api.minimax.chat/v1`
+- Endpoint: `https://api.minimax.chat/v1/text/chatcompletion_v2`
+- Models: MiniMax-M2.5
+- Requires: Bearer token authentication (Authorization: Bearer {API_KEY})
+- Content-Type: application/json
+
+## BEST PRACTICES
+
+1. Always use `req()` before accessing reactive values
+2. Handle API errors with tryCatch
+3. Use loading indicators for async operations
+4. Keep environment variables in .Renviron (not in code)
+5. Use consistent error messaging
+6. Test with known tickers (AAPL, GOOGL, MSFT, TSLA)
+
+## TESTING
+
+### Quick Test Commands
+```r
+# Test stock data
+library(quantmod)
+getSymbols("AAPL", from = Sys.Date() - 365, to = Sys.Date())
+
+# Test API
+source("test_minimax.R")
+source("test_deepseek.py")
+```
+
+## DEPLOYMENT
+
+- Platform: shinyapps.io
+- Manifest: manifest.json (generated by rsconnect)
+- Command: `rsconnect::writeManifest()`

@@ -12,6 +12,105 @@ library(htmltools)
 library(bslib)
 library(httr2)
 library(jsonlite)
+library(markdown)
+library(rvest)
+
+# ========== 联网搜索工具函数 (用于 MiniMax) ==========
+# 网页内容抓取函数
+fetch_url_content <- function(url) {
+  tryCatch({
+    # 添加 User-Agent 头，模拟浏览器访问
+    req <- request(url) %>%
+      req_headers(
+        "User-Agent" = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept" = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language" = "en-US,en;q=0.5"
+      ) %>%
+      req_perform()
+    
+    html <- resp_body_html(req)
+    # 转换为纯文本
+    text <- html %>% html_element("body") %>% html_text2()
+    
+    # 如果内容太短，尝试获取标题
+    if (nchar(text) < 100) {
+      title <- html %>% html_element("title") %>% html_text2()
+      text <- paste("Title:", title, "\n\nContent:", text)
+    }
+    
+    # 限制长度以适应 LLM 上下文
+    return(substr(text, 1, 8000))
+  }, error = function(e) {
+    return(paste("无法获取网页内容。请尝试其他 URL 或直接基于已有信息分析。错误:", e$message))
+  })
+}
+
+# MiniMax 工具定义 (类似 Claude/Gemini 的 tools)
+tools_definition <- '[
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_url_content",
+      "description": "获取指定网页的文本内容，用于搜索和获取网上最新信息。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "要抓取的完整网页 URL"
+          }
+        },
+        "required": ["url"]
+      }
+    }
+  }
+]'
+
+# 解析工具调用
+parse_tool_calls <- function(tool_calls, messages_history) {
+  if (is.null(tool_calls) || length(tool_calls) == 0) {
+    return(messages_history)
+  }
+  
+  for (tc in tool_calls) {
+    tc_func <- tc[["function"]]
+    func_name <- tc_func[["name"]]
+    
+    # 检查函数名是否匹配
+    if (!is.null(func_name) && func_name == "fetch_url_content") {
+      # 解析参数
+      args <- tryCatch({
+        fromJSON(tc_func[["arguments"]])
+      }, error = function(e) {
+        list(url = NA)
+      })
+      
+      url_to_fetch <- args[["url"]]
+      
+      if (!is.na(url_to_fetch) && grepl("^http", url_to_fetch)) {
+        content <- fetch_url_content(url_to_fetch)
+      } else {
+        content <- "Error: Invalid URL provided"
+      }
+      
+      # 添加工具结果到消息历史
+      messages_history[[length(messages_history) + 1]] <- list(
+        role = "tool",
+        tool_call_id = tc[["id"]],
+        content = content
+      )
+    } else {
+      # 未知函数，返回错误消息
+      messages_history[[length(messages_history) + 1]] <- list(
+        role = "tool",
+        tool_call_id = tc[["id"]],
+        content = paste("Error: Unknown function '", func_name, "'. Only fetch_url_content is available.", sep = "")
+      )
+    }
+  }
+  
+  return(messages_history)
+}
 
 # 加载 .Renviron 文件中的环境变量
 readRenviron(".Renviron")
@@ -43,7 +142,7 @@ ui <- page_sidebar(
     pickerInput(
       inputId = "ticker_preset",
       label = "常用股票选择",
-      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "ROCL", "SQQQ", "^IXIC", "000001.SZ"),
+      choices = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA", "NVDA", "ORCL", "SQQQ", "^IXIC", "000001.SZ"),
       selected = "AAPL",
       options = list(`live-search` = TRUE)
     ),
@@ -131,6 +230,22 @@ ui <- page_sidebar(
       span("当前使用: ", style = "font-size: 0.8rem; color: #666;"),
       uiOutput("selected_model_badge", inline = TRUE)
     ),
+    
+    # AI 参数控制
+    hr(),
+    h6("AI 参数设置", class = "mb-2"),
+    sliderInput(
+      inputId = "ai_temperature",
+      label = "Temperature (创造性)",
+      min = 0, max = 1, value = 0.7, step = 0.1
+    ),
+    sliderInput(
+      inputId = "ai_max_tokens",
+      label = "Max Tokens (输出长度)",
+      min = 256, max = 4096, value = 1024, step = 256
+    ),
+    checkboxInput("ai_enable_search", "启用联网搜索 (仅 Gemini)", value = TRUE),
+    
     actionButton("run_ai", "运行 AI 联网预测", class = "btn-primary w-100"),
 
     
@@ -246,6 +361,106 @@ ui <- page_sidebar(
               plotOutput("bt_equity_plot", height = "450px")
             )
           )
+        ),
+        nav_panel(
+          title = "AI金融助手",
+          div(class = "p-3",
+            # 聊天界面布局
+            div(class = "row g-0",
+                # 左侧：聊天消息区域
+                div(class = "col-md-9",
+                    div(style = "height: 450px; display: flex; flex-direction: column;",
+                        # 聊天消息容器
+                        div(id = "chat_container", 
+                            class = "flex-grow-1 overflow-auto p-3", 
+                            style = "background: #f8f9fa; border-radius: 10px; border: 1px solid #e9ecef;",
+                            uiOutput("chat_messages_ui")
+                        ),
+                        # 输入区域
+                        div(class = "mt-3 d-flex gap-2",
+                            textInput("chat_input", NULL, 
+                                      placeholder = "输入您的问题，例如：帮我分析一下苹果公司的股票...",
+                                      width = "100%"),
+                            actionButton("send_chat", "发送", 
+                                        class = "btn-primary",
+                                        icon = icon("paper-plane"))
+                        ),
+                        # 操作按钮
+                        div(class = "mt-2 d-flex justify-content-between align-items-center",
+                            actionButton("clear_chat", "清空对话", 
+                                        class = "btn-outline-secondary btn-sm",
+                                        icon = icon("trash")),
+                            uiOutput("chat_status")
+                        )
+                    )
+                ),
+                # 右侧：快捷操作
+                div(class = "col-md-3 ps-3",
+                    div(class = "card border-0 shadow-sm h-100",
+                        div(class = "card-header bg-white border-0",
+                            h6(class = "mb-0", bsicons::bs_icon("lightbulb"), " 快捷问题")
+                        ),
+                        div(class = "card-body p-2",
+                            div(class = "d-grid gap-2",
+                                actionButton("quick_q1", "📊 帮我分析当前股票的技术面", 
+                                           class = "btn-outline-primary btn-sm text-start"),
+                                actionButton("quick_q2", "💰 解读最新的财务指标", 
+                                           class = "btn-outline-primary btn-sm text-start"),
+                                actionButton("quick_q3", "📈 预测未来走势", 
+                                           class = "btn-outline-primary btn-sm text-start"),
+                                actionButton("quick_q4", "🎯 给出买卖建议", 
+                                           class = "btn-outline-primary btn-sm text-start"),
+                                actionButton("quick_q5", "📰 最近的重大新闻", 
+                                           class = "btn-outline-primary btn-sm text-start"),
+                                actionButton("quick_q6", "❓ 解释什么是RSI指标", 
+                                           class = "btn-outline-primary btn-sm text-start")
+                            )
+                        )
+                    )
+                )
+            ),
+            # 自定义样式
+            tags$style("
+              .chat-message { max-width: 85%; padding: 12px 16px; border-radius: 15px; margin-bottom: 12px; font-size: 0.9rem; }
+              .chat-user { background: #007bff; color: white; margin-left: auto; border-bottom-right-radius: 3px; }
+              .chat-ai { background: #e9ecef; color: #333; margin-right: auto; border-bottom-left-radius: 3px; }
+              .chat-time { font-size: 0.7rem; opacity: 0.7; margin-top: 4px; }
+              .chat-avatar { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 8px; }
+              .chat-avatar-user { background: #007bff; color: white; }
+              .chat-avatar-ai { background: #28a745; color: white; }
+              /* Markdown 格式化样式 */
+              .markdown-body { line-height: 1.6; }
+              .markdown-body h1, .markdown-body h2, .markdown-body h3 { 
+                font-size: 1.1rem; font-weight: 600; margin: 12px 0 8px 0; color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 4px; 
+              }
+              .markdown-body h1 { font-size: 1.3rem; }
+              .markdown-body h2 { font-size: 1.15rem; }
+              .markdown-body h3 { font-size: 1.05rem; }
+              .markdown-body p { margin: 8px 0; }
+              .markdown-body ul, .markdown-body ol { padding-left: 20px; margin: 8px 0; }
+              .markdown-body li { margin: 4px 0; }
+              .markdown-body table { 
+                width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.85rem; 
+              }
+              .markdown-body th, .markdown-body td { 
+                border: 1px solid #ddd; padding: 6px 8px; text-align: left; 
+              }
+              .markdown-body th { background: #f5f5f5; font-weight: 600; }
+              .markdown-body tr:nth-child(even) { background: #fafafa; }
+              .markdown-body code { 
+                background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.85em; 
+              }
+              .markdown-body pre { 
+                background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 0.8rem; 
+              }
+              .markdown-body blockquote { 
+                border-left: 3px solid #3498db; padding-left: 10px; margin: 10px 0; color: #555; 
+              }
+              .markdown-body strong { font-weight: 600; color: #2c3e50; }
+              .markdown-body em { font-style: italic; }
+              .markdown-body hr { border: none; border-top: 1px solid #eee; margin: 12px 0; }
+            ")
+          )
         )
       )
     )
@@ -287,7 +502,7 @@ server <- function(input, output, session) {
         inputId = "ai_model",
         label = "选择模型",
         choices = c(
-          "MiniMax M2.5" = "MiniMax-M2.5"
+          "MiniMax-M2.5" = "MiniMax-M2.5"
         ),
         selected = "MiniMax-M2.5"
       )
@@ -311,7 +526,7 @@ server <- function(input, output, session) {
       span(model_name, class = "badge bg-primary", style = "font-size: 0.75rem;")
     } else {
       model_name <- switch(model,
-                         "MiniMax-M2.5" = "MiniMax M2.5",
+                         "MiniMax-M2.5" = "MiniMax-M2.5",
                          model)
       span(model_name, class = "badge bg-success", style = "font-size: 0.75rem;")
     }
@@ -543,35 +758,60 @@ server <- function(input, output, session) {
     provider <- input$ai_provider
     model_id <- input$ai_model %||% "gemini-2.5-flash"
     
+    # 获取用户设置的参数
+    temperature <- input$ai_temperature %||% 0.7
+    max_tokens <- input$ai_max_tokens %||% 1024
+    
     tryCatch({
       if (provider == "gemini") {
         # Gemini API 调用
         api_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/", model_id, ":generateContent")
         
+        # 构建请求体
+        req_body <- list(
+          contents = list(
+            list(
+              role = "user",
+              parts = list(list(text = user_query))
+            )
+          ), 
+          systemInstruction = list(parts = list(list(text = system_prompt))), 
+          generationConfig = list(
+            temperature = temperature,
+            maxOutputTokens = max_tokens
+          )
+        )
+        
+        # 始终启用 Google Search 用于预测
+        req_body$tools <- list(
+          list(google_search = setNames(list(), character(0)))
+        )
+        
         resp <- request(api_url) %>%
           req_url_query(key = gemini_apiKey) %>% 
           req_method("POST") %>%
-          req_body_json(list(
-            contents = list(
-              list(
-                role = "user",
-                parts = list(list(text = user_query))
-              )
-            ), 
-            systemInstruction = list(parts = list(list(text = system_prompt))), 
-            tools = list(
-              list(
-                google_search = setNames(list(), character(0))
-              )
-            ),
-            generationConfig = list(
-              temperature = 0.2
-            )
-          )) %>%
+          req_body_json(req_body) %>%
           req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
           req_perform()
         
-        result <- resp_body_json(resp)
+        # 解析响应，增加错误处理
+        result <- tryCatch({
+          resp_body_json(resp)
+        }, error = function(e) {
+          stop(paste("API 响应解析失败:", e$message))
+        })
+        
+        # 检查响应是否有效
+        if (is.null(result) || is.null(result$candidates) || length(result$candidates) == 0) {
+          stop("API 返回结果为空，请检查 API Key 是否正确")
+        }
+        
+        # 检查 content 是否存在
+        if (is.null(result$candidates[[1]]$content) || is.null(result$candidates[[1]]$content$parts) || 
+            length(result$candidates[[1]]$content$parts) == 0) {
+          stop("API 返回的内容为空")
+        }
+        
         raw_text <- result$candidates[[1]]$content$parts[[1]]$text
         
         # 处理 Grounding Metadata
@@ -603,12 +843,28 @@ server <- function(input, output, session) {
               list(role = "user", content = user_query)
             ),
             temperature = 0.2,
-            max_tokens = 1000
+            max_tokens = 2000
           )) %>%
           req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
           req_perform()
         
-        result <- resp_body_json(resp)
+        # 解析 MiniMax 响应，增加错误处理
+        result <- tryCatch({
+          resp_body_json(resp)
+        }, error = function(e) {
+          stop(paste("MiniMax API 响应解析失败:", e$message))
+        })
+        
+        # 检查响应是否有效
+        if (is.null(result) || is.null(result$choices) || length(result$choices) == 0) {
+          stop("MiniMax API 返回结果为空，请检查 API Key 和模型名称是否正确")
+        }
+        
+        # 检查 message 是否存在
+        if (is.null(result$choices[[1]]$message) || is.null(result$choices[[1]]$message$content)) {
+          stop("MiniMax API 返回的内容为空")
+        }
+        
         raw_text <- result$choices[[1]]$message$content
         
         # MiniMax 没有 grounding，返回空
@@ -1105,7 +1361,321 @@ server <- function(input, output, session) {
     names(df) <- gsub(".*\\.", "", names(df))
     df
   }, striped = TRUE, hover = TRUE)
+  
+  # ---------------------------------------------------------
+  # AI 金融助手 (聊天功能)
+  # ---------------------------------------------------------
+  
+  # 聊天历史存储
+  chat_history <- reactiveVal(list(
+    list(role = "assistant", content = "您好！我是您的AI金融助手。我可以帮您分析股票、解读财务指标、讨论投资策略等。请随时向我提问！")
+  ))
+  
+  # 聊天状态
+  chat_loading <- reactiveVal(FALSE)
+  
+  # 渲染聊天消息
+  output$chat_messages_ui <- renderUI({
+    messages <- chat_history()
+    
+    if (length(messages) == 0) {
+      return(div(class = "text-center text-muted p-4",
+                 h5("💬 开始对话"),
+                 p("输入您的问题，开始与AI讨论金融话题")))
+    }
+    
+    # 构建消息列表
+    msg_tags <- lapply(seq_along(messages), function(i) {
+      msg <- messages[[i]]
+      is_user <- msg$role == "user"
+      
+      div(class = if(is_user) "d-flex flex-row-reverse mb-3" else "d-flex mb-3",
+          # 头像
+          div(class = paste0("chat-avatar ", if(is_user) "chat-avatar-user" else "chat-avatar-ai"),
+              if(is_user) "您" else "AI"),
+          # 消息气泡
+          div(class = paste0("chat-message ", if(is_user) "chat-user" else "chat-ai"),
+              if(is_user) {
+                # 用户消息：直接显示纯文本
+                div(class = "chat-content", msg$content)
+              } else {
+                # AI消息：渲染Markdown格式内容
+                div(class = "chat-content markdown-body",
+                    HTML(markdown::markdownToHTML(text = msg$content, fragment.only = TRUE)))
+              },
+              div(class = "chat-time", format(Sys.time(), "%H:%M"))
+          )
+      )
+    })
+    
+    # 自动滚动到底部
+    session$sendCustomMessage("scrollToBottom", list(id = "chat_container"))
+    
+    tagList(msg_tags)
+  })
+  
+  # 聊天状态显示
+  output$chat_status <- renderUI({
+    if (chat_loading()) {
+      span(class = "badge bg-warning", "AI 正在思考中...")
+    } else {
+      provider <- input$ai_provider
+      model <- input$ai_model %||% "gemini-2.5-flash"
+      provider_name <- ifelse(provider == "gemini", "Gemini", "MiniMax")
+      span(class = "badge bg-success", paste0("已连接 ", provider_name))
+    }
+  })
+  
+  # 发送聊天消息
+  observeEvent(input$send_chat, {
+    user_input <- input$chat_input
+    if (is.null(user_input) || trimws(user_input) == "") return()
+    
+    # 添加用户消息
+    current_history <- chat_history()
+    current_history[[length(current_history) + 1]] <- list(role = "user", content = user_input)
+    chat_history(current_history)
+    
+    # 清空输入框
+    updateTextInput(session, "chat_input", value = "")
+    
+    # 调用 AI
+    chat_loading(TRUE)
+    
+    # 获取当前股票数据作为上下文
+    data <- ticker_data()
+    ticker <- current_ticker()
+    
+    # 构建系统提示 - 针对 MiniMax 特殊处理
+    system_prompt <- paste0("你是一位专业的金融投资顾问AI助手。当前用户正在分析股票。",
+    "请用中文回答用户的问题，保持专业和详细说明。",
+    "如果用户询问具体的股票分析，你可以结合技术指标和基本面进行分析。",
+    "重要提示：当需要获取网上信息时，请在回答中直接提供相关的URL链接（如 https://finance.yahoo.com/quote/AAPL 等），",
+    "格式可以是任何可点击的链接形式。我会自动抓取这些网页来补充信息。")
+    
+    # 准备消息历史 (转换为 API 格式)
+    provider <- input$ai_provider
+    model_id <- input$ai_model %||% "gemini-2.5-flash"
+    
+    # 获取用户设置的参数
+    temperature <- input$ai_temperature %||% 0.7
+    max_tokens <- input$ai_max_tokens %||% 1024
+    enable_search <- input$ai_enable_search %||% TRUE
+    
+    tryCatch({
+      if (provider == "gemini") {
+        # Gemini API 调用
+        api_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/", model_id, ":generateContent")
+        
+        # 构建消息内容
+        msg_contents <- lapply(current_history, function(m) {
+          list(role = m$role, parts = list(list(text = m$content)))
+        })
+        
+        # 构建请求体
+        chat_req_body <- list(
+          contents = msg_contents,
+          systemInstruction = list(parts = list(list(text = system_prompt))),
+          generationConfig = list(
+            temperature = temperature,
+            maxOutputTokens = max_tokens
+          )
+        )
+        
+        # 根据用户设置决定是否启用 Google Search
+        if (enable_search) {
+          chat_req_body$tools <- list(
+            list(google_search = setNames(list(), character(0)))
+          )
+        }
+        
+        resp <- request(api_url) %>%
+          req_url_query(key = gemini_apiKey) %>% 
+          req_method("POST") %>%
+          req_body_json(chat_req_body) %>%
+          req_retry(max_tries = 3) %>%
+          req_perform()
+        
+        result <- resp_body_json(resp)
+        ai_response <- result$candidates[[1]]$content$parts[[1]]$text
+        
+      } else if (provider == "minimax") {
+        # MiniMax API 调用 - 简化版本：不使用 tools，直接让AI提供URL
+        api_url <- "https://api.minimax.chat/v1/text/chatcompletion_v2"
+
+        # MiniMax 消息格式
+        msgs <- list(
+          list(role = "system", content = system_prompt)
+        )
+        for (m in current_history) {
+          msgs[[length(msgs) + 1]] <- list(role = m$role, content = m$content)
+        }
+
+        # 首次调用 API - 不再传递 tools 参数
+        minimax_req <- list(
+          model = model_id,
+          messages = msgs,
+          temperature = temperature,
+          max_tokens = max_tokens
+        )
+
+        resp <- request(api_url) %>%
+          req_method("POST") %>%
+          req_headers(
+            "Authorization" = paste0("Bearer ", minimax_apiKey),
+            "Content-Type" = "application/json"
+          ) %>%
+          req_body_json(minimax_req) %>%
+          req_retry(max_tries = 3) %>%
+          req_perform()
+
+        # 解析响应，增加错误处理
+        result <- tryCatch({
+          resp_body_json(resp)
+        }, error = function(e) {
+          stop(paste("MiniMax API 响应解析失败:", e$message))
+        })
+        
+        # 检查响应是否有效
+        if (is.null(result) || is.null(result$choices) || length(result$choices) == 0) {
+          stop("MiniMax API 返回结果为空，请检查 API Key 和模型名称是否正确")
+        }
+        
+        # 检查 message 是否存在
+        if (is.null(result$choices[[1]]$message) || is.null(result$choices[[1]]$message$content)) {
+          stop("MiniMax API 返回的内容为空")
+        }
+        
+        ai_response <- result$choices[[1]]$message$content
+        
+        # 检测回复中是否包含 URL 并自动抓取
+        url_pattern <- "https?://[^\\s<>\\]\\)]+"
+        urls_found <- regmatches(ai_response, gregexpr(url_pattern, ai_response))[[1]]
+        
+        # 过滤掉可能不是我们想要的URL（如图片等）
+        relevant_urls <- urls_found[grep("yahoo|investing|cnn|microsoft|apple|google|reuters|bloomberg|wsj|marketwatch", urls_found, ignore.case = TRUE)]
+        
+        if (length(relevant_urls) > 0) {
+          cat("检测到相关URL:", relevant_urls[1], "\n")
+          
+          # 获取第一个相关URL
+          url_to_fetch <- relevant_urls[1]
+          cat("尝试抓取:", url_to_fetch, "\n")
+          
+          # 抓取网页内容
+          fetched_content <- fetch_url_content(url_to_fetch)
+          
+          # 如果成功获取到内容，发送第二轮请求
+          if (!grepl("Error:", fetched_content)) {
+            # 构造补充上下文后的第二轮请求
+            additional_context <- paste0("\n\n[补充信息 - 已从 ", url_to_fetch, " 获取]:\n", substr(fetched_content, 1, 3000))
+            
+            msgs2 <- msgs
+            msgs2[[length(msgs2) + 1]] <- list(role = "user", content = paste0("请基于以下补充信息完善你的回答：", additional_context))
+            
+            resp2 <- request(api_url) %>%
+              req_method("POST") %>%
+              req_headers(
+                "Authorization" = paste0("Bearer ", minimax_apiKey),
+                "Content-Type" = "application/json"
+              ) %>%
+              req_body_json(list(
+                model = model_id,
+                messages = msgs2,
+                temperature = temperature,
+                max_tokens = max_tokens
+              )) %>%
+              req_retry(max_tries = 3) %>%
+              req_perform()
+            
+            result2 <- resp_body_json(resp2)
+            ai_response <- result2$choices[[1]]$message$content
+          }
+        }
+      }
+      
+      # 添加 AI 响应到历史
+      current_history <- chat_history()
+      current_history[[length(current_history) + 1]] <- list(role = "assistant", content = ai_response)
+      chat_history(current_history)
+      
+    }, error = function(e) {
+      # 添加错误消息
+      current_history <- chat_history()
+      current_history[[length(current_history) + 1]] <- list(
+        role = "assistant", 
+        content = paste("抱歉，处理您的请求时出现错误：", e$message)
+      )
+      chat_history(current_history)
+    })
+    
+    chat_loading(FALSE)
+  })
+  
+  # 回车发送
+  observeEvent(input$chat_input, {
+    if (is.null(input$chat_input)) return()
+  })
+  
+  # 清空对话
+  observeEvent(input$clear_chat, {
+    chat_history(list(
+      list(role = "assistant", content = "对话已清空。请问有什么可以帮助您的？")
+    ))
+    showNotification("对话已清空", type = "message")
+  })
+  
+  # 快捷问题按钮
+  observeEvent(input$quick_q1, {
+    updateTextInput(session, "chat_input", value = "请帮我分析当前股票的技术面，包括趋势、支撑阻力位和技术指标信号")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
+  observeEvent(input$quick_q2, {
+    updateTextInput(session, "chat_input", value = "请解读一下最新的财务指标，包括营收、利润、估值等")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
+  observeEvent(input$quick_q3, {
+    updateTextInput(session, "chat_input", value = "基于目前的技术面和基本面，请预测一下未来走势")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
+  observeEvent(input$quick_q4, {
+    updateTextInput(session, "chat_input", value = "基于当前分析，请给出具体的买卖建议和仓位管理")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
+  observeEvent(input$quick_q5, {
+    updateTextInput(session, "chat_input", value = "这只股票最近有什么重大新闻或事件吗？")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
+  observeEvent(input$quick_q6, {
+    updateTextInput(session, "chat_input", value = "请解释一下什么是RSI指标，如何使用它来辅助交易？")
+    session$sendCustomMessage("focusElement", list(id = "chat_input"))
+  })
+  
 }
+
+# 自定义 JavaScript 消息处理
+tags$script(HTML("
+  Shiny.addCustomMessageHandler('scrollToBottom', function(message) {
+    var el = document.getElementById(message.id);
+    if (el) {
+      setTimeout(function() {
+        el.scrollTop = el.scrollHeight;
+      }, 100);
+    }
+  });
+  
+  Shiny.addCustomMessageHandler('focusElement', function(message) {
+    var el = document.getElementById(message.id);
+    if (el) {
+      el.focus();
+    }
+  });
+"))
 
 # Run app
 shinyApp(ui = ui, server = server)

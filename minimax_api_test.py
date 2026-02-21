@@ -22,7 +22,7 @@ message = client.messages.create(
             "content": [
                 {
                     "type": "text",
-                    "text": "你好，请介绍一下你自己。你的MiniMax版本是什么？"
+                    "text": "你好，请介绍一下你自己。你版本是什么？"
                 }
             ]
         }
