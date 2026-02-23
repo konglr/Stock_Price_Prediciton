@@ -120,7 +120,8 @@ ui <- page_sidebar(
       label = "选择 AI 提供商",
       choices = c(
         "Google Gemini" = "gemini",
-        "MiniMax" = "minimax"
+        "MiniMax" = "minimax",
+        "阿里云百炼" = "aliyun"
       ),
       selected = "minimax"
     ),
@@ -379,6 +380,7 @@ server <- function(input, output, session) {
   # API Keys 从环境变量读取
   gemini_apiKey <- Sys.getenv("GEMINI_API_KEY")
   minimax_apiKey <- Sys.getenv("MINIMAX_API_KEY")
+  aliyun_apiKey <- Sys.getenv("ALIYUNCS_API_KEY")
   
   # 辅助函数：处理 NULL 值
   `%||%` <- function(a, b) if (!is.null(a)) a else b
@@ -411,6 +413,20 @@ server <- function(input, output, session) {
         ),
         selected = "MiniMax-M2.5"
       )
+    } else if (provider == "aliyun") {
+      selectInput(
+        inputId = "ai_model",
+        label = "选择模型",
+        choices = c(
+          "通义千问 3.5 Plus (推荐)" = "qwen3.5-plus",
+          "通义千问 3 Max" = "qwen3-max-2026-01-23",
+          "通义千问 3 Coder Next" = "qwen3-coder-next",
+          "通义千问 3 Coder Plus" = "qwen3-coder-plus",
+          "智谱 GLM-4.7" = "glm-4.7",
+          "Moonshot Kimi K2.5" = "kimi-k2-5"
+        ),
+        selected = "qwen3.5-plus"
+      )
     }
   })
   
@@ -429,12 +445,24 @@ server <- function(input, output, session) {
                           "gemini-1.5-flash" = "Gemini 1.5 Flash",
                          model)
       span(model_name, class = "badge bg-primary", style = "font-size: 0.75rem;")
-    } else {
+    } else if (provider == "minimax") {
       model_name <- switch(model,
                          "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5",
                          "MiniMax-M2.1" = "MiniMax-M2.1",
                          model)
       span(model_name, class = "badge bg-success", style = "font-size: 0.75rem;")
+    } else if (provider == "aliyun") {
+      model_name <- switch(model,
+                          "qwen3.5-plus" = "Qwen 3.5 Plus",
+                          "qwen3-max-2026-01-23" = "Qwen 3 Max",
+                          "qwen3-coder-next" = "Qwen 3 Coder Next",
+                          "qwen3-coder-plus" = "Qwen 3 Coder Plus",
+                          "glm-4.7" = "GLM-4.7",
+                          "kimi-k2-5" = "Kimi K2.5",
+                          model)
+      span(model_name, class = "badge bg-info", style = "font-size: 0.75rem;")
+    } else {
+      span(model, class = "badge bg-secondary", style = "font-size: 0.75rem;")
     }
   })
   
@@ -822,6 +850,49 @@ server <- function(input, output, session) {
         
         # MiniMax 没有 grounding，返回空
         ai_grounding(NULL)
+      } else if (provider == "aliyun") {
+        # 阿里云百炼 API 调用
+        api_url <- "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
+        
+        resp <- request(api_url) %>%
+          req_method("POST") %>%
+          req_headers(
+            "Authorization" = paste0("Bearer ", aliyun_apiKey),
+            "Content-Type" = "application/json"
+          ) %>%
+          req_body_json(list(
+            model = model_id,
+            messages = list(
+              list(role = "system", content = system_prompt),
+              list(role = "user", content = user_query)
+            ),
+            temperature = temperature,
+            max_tokens = max_tokens
+          )) %>%
+          req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
+          req_perform()
+        
+        # 解析阿里云响应，增加错误处理
+        result <- tryCatch({
+          resp_body_json(resp)
+        }, error = function(e) {
+          stop(paste("阿里云 API 响应解析失败:", e$message))
+        })
+        
+        # 检查响应是否有效
+        if (is.null(result) || is.null(result$choices) || length(result$choices) == 0) {
+          stop("阿里云 API 返回结果为空，请检查 API Key 和模型名称是否正确")
+        }
+        
+        # 检查 message 是否存在
+        if (is.null(result$choices[[1]]$message) || is.null(result$choices[[1]]$message$content)) {
+          stop("阿里云 API 返回的内容为空")
+        }
+        
+        raw_text <- result$choices[[1]]$message$content
+        
+        # 阿里云没有 grounding，返回空
+        ai_grounding(NULL)
       }
       
       # 解析 JSON - 采用更鲁棒的嵌套块检测逻辑
@@ -937,14 +1008,37 @@ server <- function(input, output, session) {
       return(div(class="alert alert-danger", as.character(res$error)))
     }
     
-    tagList(
+      # 获取友好的模型名称
+      model_name <- switch(input$ai_model,
+                           "gemini-3.1-pro-preview" = "Gemini 3.1 Pro",
+                           "gemini-3-flash-preview" = "Gemini 3.0 Flash",
+                           "gemini-2.5-flash" = "Gemini 2.5 Flash",
+                           "gemini-2.0-flash" = "Gemini 2.0 Flash",
+                           "gemini-1.5-pro" = "Gemini 1.5 Pro",
+                           "gemini-1.5-flash" = "Gemini 1.5 Flash",
+                           "MiniMax-M2.5" = "MiniMax-M2.5",
+                           "MiniMax-M2.1" = "MiniMax-M2.1",
+                           "qwen3.5-plus" = "Qwen 3.5 Plus",
+                           "qwen3-max-2026-01-23" = "Qwen 3 Max",
+                           "qwen3-coder-next" = "Qwen 3 Coder Next",
+                           "qwen3-coder-plus" = "Qwen 3 Coder Plus",
+                           "glm-4.7" = "GLM-4.7",
+                           "kimi-k2-5" = "Kimi K2.5",
+                           input$ai_model)
+      
+      tagList(
       div(class="mb-3 d-flex align-items-center justify-content-between",
           h5(paste0("综合研判：", res$trend), class="text-primary fw-bold mb-0"),
-          if (input$ai_provider == "gemini") {
-            span(class="badge bg-success", "Google Search 联网数据已接入")
-          } else {
-            span(class="badge bg-info", "MiniMax AI 智能分析")
-          }
+          div(class="d-flex gap-2",
+              span(class="badge bg-secondary", model_name),
+              if (input$ai_provider == "gemini") {
+                span(class="badge bg-success", "Google Search 联网数据已接入")
+              } else if (input$ai_provider == "minimax") {
+                span(class="badge bg-info", "MiniMax AI 智能分析")
+              } else if (input$ai_provider == "aliyun") {
+                span(class="badge bg-warning", "阿里云百炼 AI 智能分析")
+              }
+          )
       ),
       
       div(class="row g-3",
@@ -1452,7 +1546,8 @@ server <- function(input, output, session) {
     } else {
       provider <- input$ai_provider
       model <- input$ai_model %||% "gemini-2.5-flash"
-      provider_name <- ifelse(provider == "gemini", "Gemini", "MiniMax")
+        provider_name <- ifelse(provider == "gemini", "Gemini", 
+                              ifelse(provider == "minimax", "MiniMax", "阿里云百炼"))
       span(class = "badge bg-success", paste0("已连接 ", provider_name))
     }
   })
@@ -1580,6 +1675,53 @@ server <- function(input, output, session) {
         
         ai_response <- result$choices[[1]]$message$content
         
+      } else if (provider == "aliyun") {
+        # 阿里云百炼 API 调用
+        api_url <- "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
+        
+        # 阿里云消息格式
+        msgs <- list(
+          list(role = "system", content = system_prompt)
+        )
+        for (m in current_history) {
+          msgs[[length(msgs) + 1]] <- list(role = m$role, content = m$content)
+        }
+        
+        aliyun_req <- list(
+          model = model_id,
+          messages = msgs,
+          temperature = temperature,
+          max_tokens = max_tokens
+        )
+        
+        resp <- request(api_url) %>%
+          req_method("POST") %>%
+          req_headers(
+            "Authorization" = paste0("Bearer ", aliyun_apiKey),
+            "Content-Type" = "application/json"
+          ) %>%
+          req_body_json(aliyun_req) %>%
+          req_retry(max_tries = 3) %>%
+          req_perform()
+        
+        # 解析响应，增加错误处理
+        result <- tryCatch({
+          resp_body_json(resp)
+        }, error = function(e) {
+          stop(paste("阿里云 API 响应解析失败:", e$message))
+        })
+        
+        # 检查响应是否有效
+        if (is.null(result) || is.null(result$choices) || length(result$choices) == 0) {
+          stop("阿里云 API 返回结果为空，请检查 API Key 和模型名称是否正确")
+        }
+        
+        # 检查 message 是否存在
+        if (is.null(result$choices[[1]]$message) || is.null(result$choices[[1]]$message$content)) {
+          stop("阿里云 API 返回的内容为空")
+        }
+        
+        ai_response <- result$choices[[1]]$message$content
       }
       
       # 添加 AI 响应到历史

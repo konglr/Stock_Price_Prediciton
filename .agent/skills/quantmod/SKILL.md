@@ -30,3 +30,25 @@ cs <- add_MACD()
 cs <- add_TA(SAR(data), on = 1)
 print(cs)
 ```
+
+# Project Architecture
+
+This is an R Shiny application for stock analysis with the following structure:
+
+*   **Main Application (`app.R`):** The entry point of the Shiny web application. It defines the UI and server logic.
+
+*   **Trading Strategies (`trading_strategy/`):** Contains R scripts for different trading algorithms like:
+    *   `sma_cross.R`
+    *   `supertrend.R`
+    *   `adx_bbands.R`
+    *   `rsi_logic.R`
+
+*   **Core Functions (`functions/`):** Holds shared R code.
+    *   `backtest.R`: For simulating trading strategy performance.
+    *   `supertrend.R`: Base calculation for the supertrend indicator.
+
+*   **AI & Machine Learning:**
+    *   `keras stock prediction.R`: Indicates a Keras/TensorFlow model for stock price prediction.
+    *   Various files for Gemini, minimax, and deepseek suggest integration with Large Language Models for chat or other generative tasks.
+
+*   **Deployment (`rsconnect/`, `.posit/`):** Configuration for deploying the application to services like shinyapps.io or Posit Connect.

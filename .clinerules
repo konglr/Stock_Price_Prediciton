@@ -22,6 +22,7 @@
 - GEMINI_API_KEY
 - MINIMAX_API_KEY
 - SILICONFLOW_API_KEY
+- ALIYUNCS_API_KEY (阿里云百炼 API Key)
 
 ## CODE CONVENTIONS
 
@@ -193,6 +194,74 @@ add_TA(st_down, on = 1, col = "red", lwd = 2)
 - Requires: Bearer token authentication (Authorization: Bearer {API_KEY})
 - Content-Type: application/json
 
+### 阿里云百炼 (Aliyun DashScope) API
+
+#### Chat Completions API
+- Base URL: `https://coding.dashscope.aliyuncs.com/v1`
+- Endpoint: `/chat/completions`
+- Authentication: Bearer Token (`Authorization: Bearer {ALIYUNCS_API_KEY}`)
+- Content-Type: application/json
+
+#### List Deployable Models API
+- Base URL: `https://dashscope.aliyuncs.com/api/v1`
+- Endpoint: `/deployments/models`
+- Method: GET
+- Query Parameters: `page_no`, `page_size`
+- Authentication: Bearer Token (`Authorization: Bearer {ALIYUNCS_API_KEY}`)
+
+#### Available Models
+| Model | Description |
+|-------|-------------|
+| `qwen3.5-plus` | 通义千问 3.5 Plus |
+| `qwen3-max-2026-01-23` | 通义千问 3 Max |
+| `qwen3-coder-next` | 通义千问 3 Coder Next |
+| `qwen3-coder-plus` | 通义千问 3 Coder Plus |
+| `glm-4.7` | 智谱 GLM-4.7 |
+| `kimi-k2-5` | Moonshot Kimi K2.5 |
+
+#### Example: Chat Completion Request
+```r
+library(httr)
+library(jsonlite)
+
+payload <- list(
+  model = "qwen3.5-plus",
+  messages = list(
+    list(role = "system", content = "You are a helpful assistant."),
+    list(role = "user", content = "你好，请介绍你自己。")
+  ),
+  stream = FALSE
+)
+
+response <- POST(
+  url = "https://coding.dashscope.aliyuncs.com/v1/chat/completions",
+  add_headers(
+    `Authorization` = paste("Bearer", Sys.getenv("ALIYUNCS_API_KEY")),
+    `Content-Type` = "application/json"
+  ),
+  body = toJSON(payload, auto_unbox = TRUE),
+  encode = "json"
+)
+```
+
+#### Example: List Models Request
+```r
+library(httr)
+
+response <- GET(
+  url = "https://dashscope.aliyuncs.com/api/v1/deployments/models?page_no=1&page_size=100",
+  add_headers(
+    `Authorization` = paste("Bearer", Sys.getenv("ALIYUNCS_API_KEY"))
+  )
+)
+
+if (status_code(response) == 200) {
+  parsed_content <- content(response, "parsed", encoding = "UTF-8")
+  model_ids <- sapply(parsed_content$data, function(m) m$id)
+  print(sort(model_ids))
+}
+```
+
 ## BEST PRACTICES
 
 1. Always use `req()` before accessing reactive values
@@ -213,6 +282,7 @@ getSymbols("AAPL", from = Sys.Date() - 365, to = Sys.Date())
 # Test API
 source("test_minimax.R")
 source("test_deepseek.py")
+source("test_aliyun_models.R")  # 测试阿里云百炼模型
 ```
 
 ## DEPLOYMENT
