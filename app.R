@@ -15,102 +15,6 @@ library(jsonlite)
 library(markdown)
 library(rvest)
 
-# ========== 联网搜索工具函数 (用于 MiniMax) ==========
-# 网页内容抓取函数
-fetch_url_content <- function(url) {
-  tryCatch({
-    # 添加 User-Agent 头，模拟浏览器访问
-    req <- request(url) %>%
-      req_headers(
-        "User-Agent" = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept" = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language" = "en-US,en;q=0.5"
-      ) %>%
-      req_perform()
-    
-    html <- resp_body_html(req)
-    # 转换为纯文本
-    text <- html %>% html_element("body") %>% html_text2()
-    
-    # 如果内容太短，尝试获取标题
-    if (nchar(text) < 100) {
-      title <- html %>% html_element("title") %>% html_text2()
-      text <- paste("Title:", title, "\n\nContent:", text)
-    }
-    
-    # 限制长度以适应 LLM 上下文
-    return(substr(text, 1, 8000))
-  }, error = function(e) {
-    return(paste("无法获取网页内容。请尝试其他 URL 或直接基于已有信息分析。错误:", e$message))
-  })
-}
-
-# MiniMax 工具定义 (类似 Claude/Gemini 的 tools)
-tools_definition <- '[
-  {
-    "type": "function",
-    "function": {
-      "name": "fetch_url_content",
-      "description": "获取指定网页的文本内容，用于搜索和获取网上最新信息。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "description": "要抓取的完整网页 URL"
-          }
-        },
-        "required": ["url"]
-      }
-    }
-  }
-]'
-
-# 解析工具调用
-parse_tool_calls <- function(tool_calls, messages_history) {
-  if (is.null(tool_calls) || length(tool_calls) == 0) {
-    return(messages_history)
-  }
-  
-  for (tc in tool_calls) {
-    tc_func <- tc[["function"]]
-    func_name <- tc_func[["name"]]
-    
-    # 检查函数名是否匹配
-    if (!is.null(func_name) && func_name == "fetch_url_content") {
-      # 解析参数
-      args <- tryCatch({
-        fromJSON(tc_func[["arguments"]])
-      }, error = function(e) {
-        list(url = NA)
-      })
-      
-      url_to_fetch <- args[["url"]]
-      
-      if (!is.na(url_to_fetch) && grepl("^http", url_to_fetch)) {
-        content <- fetch_url_content(url_to_fetch)
-      } else {
-        content <- "Error: Invalid URL provided"
-      }
-      
-      # 添加工具结果到消息历史
-      messages_history[[length(messages_history) + 1]] <- list(
-        role = "tool",
-        tool_call_id = tc[["id"]],
-        content = content
-      )
-    } else {
-      # 未知函数，返回错误消息
-      messages_history[[length(messages_history) + 1]] <- list(
-        role = "tool",
-        tool_call_id = tc[["id"]],
-        content = paste("Error: Unknown function '", func_name, "'. Only fetch_url_content is available.", sep = "")
-      )
-    }
-  }
-  
-  return(messages_history)
-}
 
 # 加载 .Renviron 文件中的环境变量
 readRenviron(".Renviron")
@@ -244,7 +148,7 @@ ui <- page_sidebar(
       label = "Max Tokens (输出长度)",
       min = 256, max = 4096, value = 1024, step = 256
     ),
-    checkboxInput("ai_enable_search", "启用联网搜索 (仅 Gemini)", value = TRUE),
+    checkboxInput("ai_enable_search", "启用联网搜索 (Gemini / MiniMax)", value = FALSE),
     
     actionButton("run_ai", "运行 AI 联网预测", class = "btn-primary w-100"),
 
@@ -488,10 +392,10 @@ server <- function(input, output, session) {
         inputId = "ai_model",
         label = "选择模型",
         choices = c(
-          "Gemini 3.0 Flash (最新)" = "gemini-3-flash",
-          "Gemini 2.5 Flash (平衡)" = "gemini-2.5-flash",
-          "Gemini 2.5 Flash-lite (更快)" = "gemini-2.5-flash-lite",
-          "Gemini 2.0 Flash (更快)" = "gemini-2.0-flash-exp",
+          "Gemini 3.1 Pro (预览)" = "gemini-3.1-pro-preview",
+          "Gemini 3.0 Flash (预览)" = "gemini-3-flash-preview",
+          "Gemini 2.5 Flash (预览)" = "gemini-2.5-flash",
+          "Gemini 2.0 Flash (最新)" = "gemini-2.0-flash",
           "Gemini 1.5 Pro" = "gemini-1.5-pro",
           "Gemini 1.5 Flash" = "gemini-1.5-flash"
         ),
@@ -502,7 +406,8 @@ server <- function(input, output, session) {
         inputId = "ai_model",
         label = "选择模型",
         choices = c(
-          "MiniMax-M2.5" = "MiniMax-M2.5"
+          "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5",
+          "MiniMax-M2.1" = "MiniMax-M2.1"
         ),
         selected = "MiniMax-M2.5"
       )
@@ -516,17 +421,18 @@ server <- function(input, output, session) {
     
     if (provider == "gemini") {
       model_name <- switch(model,
-                         "gemini-3-flash" = "Gemini 3.0 Flash",
-                         "gemini-2.5-flash" = "Gemini 2.5 Flash",
-                         "gemini-2.5-flash-lite" = "Gemini 2.5 Flash-lite",
-                         "gemini-2.0-flash-exp" = "Gemini 2.0 Flash",
-                         "gemini-1.5-pro" = "Gemini 1.5 Pro",
-                         "gemini-1.5-flash" = "Gemini 1.5 Flash",
+                          "gemini-3.1-pro-preview" = "Gemini 3.1 Pro",
+                          "gemini-3-flash-preview" = "Gemini 3.0 Flash",
+                          "gemini-2.5-flash" = "Gemini 2.5 Flash",
+                          "gemini-2.0-flash" = "Gemini 2.0 Flash",
+                          "gemini-1.5-pro" = "Gemini 1.5 Pro",
+                          "gemini-1.5-flash" = "Gemini 1.5 Flash",
                          model)
       span(model_name, class = "badge bg-primary", style = "font-size: 0.75rem;")
     } else {
       model_name <- switch(model,
-                         "MiniMax-M2.5" = "MiniMax-M2.5",
+                         "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5",
+                         "MiniMax-M2.1" = "MiniMax-M2.1",
                          model)
       span(model_name, class = "badge bg-success", style = "font-size: 0.75rem;")
     }
@@ -740,18 +646,33 @@ server <- function(input, output, session) {
     recent_data <- tail(data, 120) 
     data_summary <- paste(capture.output(print(recent_data)), collapse = "\n")
     
-    system_prompt <- "你是一位拥有20年经验的资深美股投资专家。
-    任务：通过搜索网上的股票信息，包括财务信息、行业对比、估值评估，同时基于用户提供的历史交易数据，进行多维度的技术和量价分析。
+    # AI 分析核心提示词
+    base_prompt <- "您是一位拥有20年经验的资深美股投资专家。
+    任务：基于用户提供的历史交易数据以及最新的市场信息，进行多维度的量化分析与基本面评估。"
     
-    注意：请直接返回一个合法的 JSON 字符串，不要包含任何 Markdown 格式。JSON 必须包含以下字段：
-    - news：股票相关核心新闻动态
-    - financial: 财务信息、行业对比、估值评估总结
-    - trend: 简短描述当前走势趋势
-    - prediction_5d: 预测未来 5 个交易日的估计收盘价数组
-    - reasoning: 详细的投资逻辑分析
-    - support_level: 主要支撑位置价格
-    - resistance_level: 主要阻力位置价格
-    - trade_advice: { action: '买入价格/盈利价格/止顺价格', buy_price, take_profit, stop_loss }。"
+    if (input$ai_enable_search) {
+      base_prompt <- paste0(base_prompt, "\n你可以通过联网搜索工具获取最新的财务数据、行业对比数据和新闻。")
+    }
+    
+    system_prompt <- paste0(base_prompt, "\n
+    ### 强制响应格式：
+    必须仅返回一个合法的 JSON 字符串，禁止包含 ```json 标签或任何前后导言。
+    JSON 结构模板：
+    {
+      \"news\": \"(这里放核心新闻总结)\",
+      \"financial\": \"(这里放财务、行业对比、估值分析)\",
+      \"trend\": \"(这里放当前走势描述)\",
+      \"prediction_5d\": [价格1, 价格2, 价格3, 价格4, 价格5],
+      \"reasoning\": \"(这里放详细投资逻辑)\",
+      \"support_level\": 支撑价位,
+      \"resistance_level\": 阻力价位,
+      \"trade_advice\": {
+        \"action\": \"买入/持有/观望\",
+        \"buy_price\": 建议买入价,
+        \"take_profit\": 止盈价,
+        \"stop_loss\": 止损价
+      }
+    }")
     
     user_query <- paste0("股票代码: ", current_ticker(), "\n最近半年历史交易明细数据：\n", data_summary)
     
@@ -782,10 +703,12 @@ server <- function(input, output, session) {
           )
         )
         
-        # 始终启用 Google Search 用于预测
-        req_body$tools <- list(
-          list(google_search = setNames(list(), character(0)))
-        )
+        # 如果启用搜索，添加 Google Search
+        if (input$ai_enable_search) {
+          req_body$tools <- list(
+            list(google_search = setNames(list(), character(0)))
+          )
+        }
         
         resp <- request(api_url) %>%
           req_url_query(key = gemini_apiKey) %>% 
@@ -812,18 +735,47 @@ server <- function(input, output, session) {
           stop("API 返回的内容为空")
         }
         
-        raw_text <- result$candidates[[1]]$content$parts[[1]]$text
+        # 增强的内容提取：寻找包含 text 的第一个 part
+        raw_text <- ""
+        parts <- result$candidates[[1]]$content$parts
+        for (p in parts) {
+          if (!is.null(p$text)) {
+            raw_text <- paste0(raw_text, p$text)
+          }
+        }
         
-        # 处理 Grounding Metadata
+        if (raw_text == "") {
+           # 如果没有文字，检查是否因为安全过滤
+           reason <- result$candidates[[1]]$finishReason %||% "UNKNOWN"
+           stop(paste("Gemini 未返回文字内容。结束原因:", reason))
+        }
+        
+        # 处理 Grounding Metadata - 增加对不同结构的兼容性
         metadata <- result$candidates[[1]]$groundingMetadata
-        if (!is.null(metadata) && !is.null(metadata$groundingAttributions)) {
-          sources <- lapply(metadata$groundingAttributions, function(s) {
-            list(
-              title = s$web$title %||% "网页来源",
-              uri = s$web$uri %||% "#"
-            )
-          })
-          ai_grounding(sources)
+        if (!is.null(metadata)) {
+          sources <- list()
+          
+          # 尝试从 groundingAttributions 获取 (旧版/部分模型)
+          if (!is.null(metadata$groundingAttributions)) {
+            sources <- lapply(metadata$groundingAttributions, function(s) {
+              list(title = s$web$title %||% "网页来源", uri = s$web$uri %||% "#")
+            })
+          } 
+          # 尝试从 groundingChunks 获取 (新版 v1beta)
+          else if (!is.null(metadata$groundingChunks)) {
+            sources <- lapply(metadata$groundingChunks, function(c) {
+              if (!is.null(c$web)) {
+                list(title = c$web$title %||% "网页来源", uri = c$web$uri %||% "#")
+              } else {
+                NULL
+              }
+            })
+            sources <- Filter(Negate(is.null), sources)
+          }
+          
+          if (length(sources) > 0) {
+            ai_grounding(sources)
+          }
         }
         
       } else if (provider == "minimax") {
@@ -842,8 +794,9 @@ server <- function(input, output, session) {
               list(role = "system", content = system_prompt),
               list(role = "user", content = user_query)
             ),
-            temperature = 0.2,
-            max_tokens = 2000
+            tools = if (input$ai_enable_search) list(list(type = "web_search", web_search = setNames(list(), character(0)))) else NULL,
+            temperature = temperature,
+            max_tokens = max_tokens
           )) %>%
           req_retry(max_tries = 5, backoff = ~ 1 * 2^(.x - 1)) %>%
           req_perform()
@@ -871,19 +824,97 @@ server <- function(input, output, session) {
         ai_grounding(NULL)
       }
       
-      # 解析 JSON
-      json_start <- regexpr("\\{", raw_text)
-      json_end <- regexpr("\\}[^\\}]*$", raw_text)
-      if (json_start > 0 && json_end > 0) {
-        clean_json <- substr(raw_text, json_start, json_end)
-        parsed_res <- fromJSON(clean_json)
+      # 解析 JSON - 采用更鲁棒的嵌套块检测逻辑
+      parsed_res <- NULL
+      
+      # 辅助函数：从文本中提取最外层的 {} 块
+      extract_outer_blocks <- function(text) {
+        chars <- strsplit(text, "")[[1]]
+        stack <- 0
+        start <- -1
+        blocks <- c()
+        for (i in seq_along(chars)) {
+          if (chars[i] == "{") {
+            if (stack == 0) start <- i
+            stack <- stack + 1
+          } else if (chars[i] == "}") {
+            stack <- stack - 1
+            if (stack == 0 && start != -1) {
+              blocks <- c(blocks, substr(text, start, i))
+              start <- -1
+            }
+          }
+        }
+        return(blocks)
+      }
+      
+      json_candidates <- extract_outer_blocks(raw_text)
+      
+      # 如果没找到，尝试清理常见干扰字符
+      if (length(json_candidates) == 0) {
+        # 去掉 Markdown 标签、不可见字符
+        clean_tmp <- gsub("```json|```", "", raw_text)
+        clean_tmp <- trimws(clean_tmp)
+        json_candidates <- extract_outer_blocks(clean_tmp)
+      }
+      
+      if (length(json_candidates) > 0) {
+        # 优先从后往前找包含核心预测字段的有效 JSON
+        for (candidate in rev(json_candidates)) {
+          # 检查是否包含预测字段关键字，忽略包含 tool => 的非 JSON 块
+          if (grepl("\"news\"|\"prediction_5d\"|\"trend\"", candidate, fixed = FALSE)) {
+            try({
+              tmp_res <- fromJSON(candidate)
+              if (!is.null(tmp_res$news) || !is.null(tmp_res$trend)) {
+                parsed_res <- tmp_res
+                break
+              }
+            }, silent = TRUE)
+          }
+        }
+      }
+      
+      # 如果还是没找到，尝试清理 Markdown 代码块后再找
+      if (is.null(parsed_res) && grepl("```", raw_text)) {
+        clean_text <- gsub("```json|```", "", raw_text)
+        json_candidates <- extract_outer_blocks(clean_text)
+        for (candidate in rev(json_candidates)) {
+          if (grepl("\"news\"|\"prediction_5d\"|\"trend\"", candidate)) {
+            try({
+              tmp_res <- fromJSON(candidate)
+              if (!is.null(tmp_res$news) || !is.null(tmp_res$trend)) {
+                parsed_res <- tmp_res
+                break
+              }
+            }, silent = TRUE)
+          }
+        }
+      }
+
+      if (!is.null(parsed_res)) {
         ai_prediction(parsed_res)
       } else {
-        stop("AI 返回的格式无法解析为 JSON")
+        # 失败时输出完整内容到控制台辅助调试
+        message("--- DEBUG: AI RAW OUTPUT ---")
+        message(raw_text)
+        message("--- DEBUG: END ---")
+        
+        sample_text <- substr(raw_text, 1, 100)
+        stop(paste0("AI 返回内容未找到有效 JSON 预测。内容摘要：", sample_text, "..."))
       }
       
     }, error = function(e) {
-      ai_prediction(list(error = paste("AI 联网分析失败:", e$message)))
+      # 捕获详细错误日志
+      err_msg <- e$message
+      if (!is.null(e$response)) {
+        try({
+          resp_err <- resp_body_json(e$response)
+          if (!is.null(resp_err$error$message)) {
+            err_msg <- paste0(err_msg, " - ", resp_err$error$message)
+          }
+        }, silent = TRUE)
+      }
+      ai_prediction(list(error = paste("AI 联网分析失败:", err_msg)))
     })
     ai_loading(FALSE)
   })
@@ -1467,9 +1498,10 @@ server <- function(input, output, session) {
         # Gemini API 调用
         api_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/", model_id, ":generateContent")
         
-        # 构建消息内容
+        # 构建消息内容 - Gemini 角色必须是 user/model
         msg_contents <- lapply(current_history, function(m) {
-          list(role = m$role, parts = list(list(text = m$content)))
+          role_map <- c("user" = "user", "assistant" = "model")
+          list(role = role_map[m$role], parts = list(list(text = m$content)))
         })
         
         # 构建请求体
@@ -1548,50 +1580,6 @@ server <- function(input, output, session) {
         
         ai_response <- result$choices[[1]]$message$content
         
-        # 检测回复中是否包含 URL 并自动抓取
-        url_pattern <- "https?://[^\\s<>\\]\\)]+"
-        urls_found <- regmatches(ai_response, gregexpr(url_pattern, ai_response))[[1]]
-        
-        # 过滤掉可能不是我们想要的URL（如图片等）
-        relevant_urls <- urls_found[grep("yahoo|investing|cnn|microsoft|apple|google|reuters|bloomberg|wsj|marketwatch", urls_found, ignore.case = TRUE)]
-        
-        if (length(relevant_urls) > 0) {
-          cat("检测到相关URL:", relevant_urls[1], "\n")
-          
-          # 获取第一个相关URL
-          url_to_fetch <- relevant_urls[1]
-          cat("尝试抓取:", url_to_fetch, "\n")
-          
-          # 抓取网页内容
-          fetched_content <- fetch_url_content(url_to_fetch)
-          
-          # 如果成功获取到内容，发送第二轮请求
-          if (!grepl("Error:", fetched_content)) {
-            # 构造补充上下文后的第二轮请求
-            additional_context <- paste0("\n\n[补充信息 - 已从 ", url_to_fetch, " 获取]:\n", substr(fetched_content, 1, 3000))
-            
-            msgs2 <- msgs
-            msgs2[[length(msgs2) + 1]] <- list(role = "user", content = paste0("请基于以下补充信息完善你的回答：", additional_context))
-            
-            resp2 <- request(api_url) %>%
-              req_method("POST") %>%
-              req_headers(
-                "Authorization" = paste0("Bearer ", minimax_apiKey),
-                "Content-Type" = "application/json"
-              ) %>%
-              req_body_json(list(
-                model = model_id,
-                messages = msgs2,
-                temperature = temperature,
-                max_tokens = max_tokens
-              )) %>%
-              req_retry(max_tries = 3) %>%
-              req_perform()
-            
-            result2 <- resp_body_json(resp2)
-            ai_response <- result2$choices[[1]]$message$content
-          }
-        }
       }
       
       # 添加 AI 响应到历史
