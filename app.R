@@ -1546,9 +1546,26 @@ server <- function(input, output, session) {
     } else {
       provider <- input$ai_provider
       model <- input$ai_model %||% "gemini-2.5-flash"
-        provider_name <- ifelse(provider == "gemini", "Gemini", 
-                              ifelse(provider == "minimax", "MiniMax", "阿里云百炼"))
-      span(class = "badge bg-success", paste0("已连接 ", provider_name))
+      
+      # 获取友好的模型名称
+      model_name <- switch(model,
+                           "gemini-3.1-pro-preview" = "Gemini 3.1 Pro",
+                           "gemini-3-flash-preview" = "Gemini 3.0 Flash",
+                           "gemini-2.5-flash" = "Gemini 2.5 Flash",
+                           "gemini-2.0-flash" = "Gemini 2.0 Flash",
+                           "gemini-1.5-pro" = "Gemini 1.5 Pro",
+                           "gemini-1.5-flash" = "Gemini 1.5 Flash",
+                           "MiniMax-M2.5" = "MiniMax-M2.5",
+                           "MiniMax-M2.1" = "MiniMax-M2.1",
+                           "qwen3.5-plus" = "Qwen 3.5 Plus",
+                           "qwen3-max-2026-01-23" = "Qwen 3 Max",
+                           "qwen3-coder-next" = "Qwen 3 Coder Next",
+                           "qwen3-coder-plus" = "Qwen 3 Coder Plus",
+                           "glm-4.7" = "GLM-4.7",
+                           "kimi-k2-5" = "Kimi K2.5",
+                           model)
+      
+      span(class = "badge bg-success", paste0("已连接 ", model_name))
     }
   })
   
