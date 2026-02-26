@@ -5,10 +5,6 @@ library(xts)
 library(keras)
 library(tensorflow)
 
-#use_condaenv(condaenv = "base", conda = "auto", required = TRUE)
-#use_python('/Users/clarkkong/Library/r-miniconda-arm64/envs/r-reticulate/bin/python', required = TRUE)
-#use_condaenv("r-reticulate", required = TRUE)
-#use_python_version()
 
 # download tickers data 
 ticker_names = c("AAPL", "AMZN", "GOOGL", "MSFT", "TSLA","300418.SZ","000001.SZ","600547.SS","601857.SS","000807.SZ","000858.SZ","601519.SS","000799.SZ")
