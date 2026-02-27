@@ -10,7 +10,7 @@
 * **Base URLs**:
  * OpenAI 兼容协议：`https://coding.dashscope.aliyuncs.com/v1`
  * Anthropic 兼容协议：`https://coding.dashscope.aliyuncs.com/apps/anthropic`
-* **已验证模型**: `qwen3.5-plus`, `qwen3-max-2026-01-23`, `glm-4.7`, `kimi-k2-5`
+* **已验证模型**: `qwen3.5-plus`, `qwen3-max-2026-01-23`, `glm-4.7`, `glm-5`,`kimi-k2-5`， `qwen3-coder-next`, `qwen3-coder-plus`， `MiniMax-M2.5`,
 * **R 示例**:
  ```r
  apiKey <- Sys.getenv("ALIYUNCS_API_KEY")

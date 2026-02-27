@@ -41,6 +41,7 @@ The following model IDs have been successfully tested with the `https://coding.d
 *   `qwen3-coder-plus`
 
 ### Third-Party Models
+*   `glm-5`
 *   `glm-4.7`
 *   `kimi-k2-5` (Note: user provided `kimi-k2.5`, the working ID is `kimi-k2-5`) 
 
