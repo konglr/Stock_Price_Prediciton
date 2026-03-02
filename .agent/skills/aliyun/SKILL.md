@@ -30,7 +30,7 @@ DashScope provides different base URLs depending on the API protocol you intend 
     https://coding.dashscope.aliyuncs.com/apps/anthropic
     ```
 
-## Verified Models (as of 2026-02-23)
+## Verified Models (as of 2026-03-02)
 
 The following model IDs have been successfully tested with the `https://coding.dashscope.aliyuncs.com/v1` endpoint.
 
@@ -41,9 +41,8 @@ The following model IDs have been successfully tested with the `https://coding.d
 *   `qwen3-coder-plus`
 
 ### Third-Party Models
-*   `glm-5`
 *   `glm-4.7`
-*   `kimi-k2-5` (Note: user provided `kimi-k2.5`, the working ID is `kimi-k2-5`) 
+*   `kimi-k2-5` (Note: the working ID is `kimi-k2-5`) 
 
 ## R Implementation Example (OpenAI Protocol)
 

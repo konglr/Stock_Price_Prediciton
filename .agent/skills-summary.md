@@ -8,18 +8,67 @@
 
 * **API Key 环境变量**: `ALIYUNCS_API_KEY` (从 `.Renviron` 读取)
 * **Base URLs**:
- * OpenAI 兼容协议：`https://coding.dashscope.aliyuncs.com/v1`
- * Anthropic 兼容协议：`https://coding.dashscope.aliyuncs.com/apps/anthropic`
-* **已验证模型**: `qwen3.5-plus`, `qwen3-max-2026-01-23`, `glm-4.7`, `glm-5`,`kimi-k2-5`， `qwen3-coder-next`, `qwen3-coder-plus`， `MiniMax-M2.5`,
+    * OpenAI 兼容协议：`https://coding.dashscope.aliyuncs.com/v1`
+    * Anthropic 兼容协议：`https://coding.dashscope.aliyuncs.com/apps/anthropic`
+* **已验证模型 (2026-03-02)**:
+    * `qwen3.5-plus`
+    * `qwen3-max-2026-01-23`
+    * `qwen3-coder-next`
+    * `qwen3-coder-plus`
+    * `glm-4.7`
+    * `kimi-k2-5`
 * **R 示例**:
- ```r
- apiKey <- Sys.getenv("ALIYUNCS_API_KEY")
- # 使用 httr2 调用 OpenAI 兼容接口
- ```
+    ```r
+    apiKey <- Sys.getenv("ALIYUNCS_API_KEY")
+    # 使用 httr2 调用 OpenAI 兼容接口
+    base_url <- "https://coding.dashscope.aliyuncs.com/v1"
+    ```
 
 ---
 
-## 2. quantmod chart_Series 指标
+## 2. MiniMax API (✅ 已验证)
+
+* **状态**: ✅ 2026-02-26 测试通过
+* **API Key 环境变量**: `MINIMAX_API_KEY` (从 `.Renviron` 读取)
+* **API Endpoints**:
+    * **OpenAI 兼容**: `https://api.minimax.chat/v1` (使用 `/v1/chat/completions`)
+    * **Native V2**: `https://api.minimax.chat/v1/text/chatcompletion_v2` (推荐，支持 reasoning)
+* **推荐模型**: `MiniMax-M2.5`, `MiniMax-M2.1`
+* **注意**: `MiniMax-M2.5` 支持推理模式，若 `content` 为空，请检查 `reasoning_content`。
+
+---
+
+## 3. NVIDIA NIM API (✅ 已验证)
+
+* **API Key 环境变量**: `NV_API_KEY`
+* **Base URL**: `https://integrate.api.nvidia.com/v1`
+* **支持模型**:
+    * `minimaxai/minimax-m2.1`
+    * `z-ai/glm4.7`
+    * `meta/llama-3.1-405b-instruct`
+
+---
+
+## 4. Google Gemini API
+
+* **API Key 环境变量**: `GEMINI_API_KEY`
+* **最新验证模型**: `gemini-2.5-flash`
+* **特色功能**: 支持 `google_search` grounding 工具。
+* **角色规范**: 历史消息中模型角色必须使用 `"model"` 而不是 `"assistant"`。
+
+---
+
+## 5. AI 模型联网支持情况
+
+| 提供商 | 模型 | 联网搜索支持 | 说明 |
+|--------|------|-------------|------|
+| Google | Gemini 2.5 Flash | ✅ 支持 | 通过 `google_search` grounding 工具 |
+| MiniMax | MiniMax-M2.5 | ❌ 不支持 | 模型本身不支持工具调用 |
+| 阿里云 | Qwen 3.5 Plus | ❌ 不支持 | 模型本身不支持工具调用 |
+
+---
+
+## 6. quantmod chart_Series 指标
 
 * **标准指示符** (使用 `add_` 前缀): `add_Vo()`, `add_SMA()`, `add_EMA()`, `add_BBands()`, `add_MACD()`, `add_RSI()`, `add_ADX()`
 * **通用指示符** (使用 `add_TA()`): `SAR`, `OBV`, `MFI`, `CLV`, `TR`, `ATR`
@@ -27,97 +76,18 @@
 
 ---
 
-## 3. MiniMax API (✅ 已验证)
+## 7. 项目核心架构与流程
 
-* **状态**: ✅ 2026-02-26 测试通过
-* **API Key 环境变量**: `MINIMAX_API_KEY` (从 `.Renviron` 读取)
-* **Base URL**: `https://api.minimax.chat/v1`
-* **兼容协议**: OpenAI 兼容 (`/v1/chat/completions`)
-* **推荐模型**: `MiniMax-M2.5`, `MiniMax-M2.1`
-* **Python 调用示例** (原生实现，无需 dotenv):
- ```python
- import os
- from openai import OpenAI
-
- # 手动加载 .Renviron
- def load_renviron(path=".Renviron"):
- if os.path.exists(path):
- with open(path, 'r', encoding='utf-8') as f:
- for line in f:
- line = line.strip()
- if line and not line.startswith('#') and '=' in line:
- k, v = line.split('=', 1)
- os.environ[k.strip()] = v.strip().strip('"\'')
- load_renviron()
-
- api_key = os.getenv("MINIMAX_API_KEY")
- client = OpenAI(api_key=api_key, base_url="https://api.minimax.chat/v1")
- response = client.chat.completions.create(model="MiniMax-M2.5", messages=[{"role": "user", "content": "Hello"}])
- ```
-
----
-
-## 4. NVIDIA NIM API (新增)
-
-* **API Key 环境变量**: `NV_API_KEY` (注意：不是 `NVIDIA_API_KEY`)
-* **Base URL**: `https://integrate.api.nvidia.com/v1`
-* **兼容协议**: OpenAI 兼容 (`/v1/chat/completions`)
-* **支持模型**:
- * `z-ai/glm4.7` (GLM-4.7)
- * `minimaxai/minimax-m2.1` (MiniMax M2.1, NVIDIA 托管版)
- * `meta/llama-3.1-405b-instruct` (Llama 3.1)
-* **Python 调用示例**:
- ```python
- import os
- from openai import OpenAI
-
- api_key = os.getenv("NV_API_KEY")
- client = OpenAI(api_key=api_key, base_url="https://integrate.api.nvidia.com/v1")
- 
- # 测试 GLM-4.7
- response = client.chat.completions.create(
- model="z-ai/glm4.7", 
- messages=[{"role": "user", "content": "Hello"}]
- )
- ```
-
----
-
-## 5. 项目架构
-
-```text
-Stock_Price_Prediction/
-├── app.R # 主应用入口
-├── trading_strategy/ # 交易策略
-│ ├── sma_cross.R
-│ ├── supertrend.R
-│ ├── adx_bbands.R
-│ └── rsi_logic.R
-├── functions/ # 核心功能
-│ ├── backtest.R
-│ └── supertrend.R
-├── keras stock prediction.R # Keras/TensorFlow 模型
-├── .agent/ # Agent 配置和技能
-│ ├── skills-summary.md # 本文件
-│ └── skills/
-│ ├── aliyun/SKILL.md
-│ └── quantmod/SKILL.md
-├── rsconnect/ # 部署配置
-└── .posit/ # Positron 配置
-```
+* **AI 股票识别工作流**: 
+    1. AI 判断问题是否涉及股票（`ask_ai_question_info`）。
+    2. 若涉及，调用 `switch_ticker()` 切换。
+    3. 利用 `reactiveVal(pending_ai_request)` 存储待处理请求。
+    4. 监听 `ticker_data()`，数据加载完成后自动触发 AI 分析。
+* **数据同步**: 已通过 `pending_ai_request` 机制彻底解决切换股票时的数据竞争（Race Condition）问题。
 
 ---
 
 ## 更新记录
-- 2026-02-26: 新增 MiniMax API (已验证 Base URL) 和 NVIDIA NIM API 配置。
+- 2026-03-02: 更新阿里云 DashScope 已验证模型列表，修正 MiniMax API 端点，新增 Gemini 2.5 规范。
+- 2026-02-26: 新增 MiniMax API 和 NVIDIA NIM API 配置。
 - 2026-02-26: 修正 NVIDIA API Key 变量名为 `NV_API_KEY`。
-- 2026-02-26: 调整章节顺序，将项目架构移至最后。.posit/                    # Positron 配置
-```
-
----
-
-## 5. 更新记录
-
-| 日期 | 更新内容 |
-|------|----------|
-| 2026-02-25 | 初始创建，汇总阿里云 DashScope 和 quantmod 技能 |
