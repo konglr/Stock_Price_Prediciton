@@ -15,6 +15,7 @@
     * `qwen3-max-2026-01-23`
     * `qwen3-coder-next`
     * `qwen3-coder-plus`
+    * `glm-5`
     * `glm-4.7`
     * `kimi-k2-5`
 * **R 示例**:

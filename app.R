@@ -1,18 +1,15 @@
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
 library(shiny)
+library(bslib)
 library(shinyWidgets)
 library(tidyquant)
 library(quantmod)
 library(TTR)
 library(htmltools)
-library(bslib)
 library(httr2)
 library(jsonlite)
 library(markdown)
 library(shinychat)
+library(bsicons)
 
 
 # 加载 .Renviron 文件中的环境变量
@@ -34,7 +31,21 @@ ui <- page_sidebar(
         gtag("js", new Date());
         gtag("config", "G-8LL329L0WC");
       </script>
-    ')
+    '),
+    tags$style("
+      /* 聊天 Markdown 标题样式优化 */
+      .shiny-chat-messages h1, .shiny-chat-messages h2, .shiny-chat-messages h3 {
+        font-size: 1.1rem !important;
+        font-weight: bold;
+        margin-top: 10px;
+        margin-bottom: 5px;
+        border-bottom: 1px solid #eee;
+      }
+      .shiny-chat-messages p {
+        margin-bottom: 8px;
+        line-height: 1.5;
+      }
+    ")
   ),
   
   theme = bs_theme(version = 5, bootswatch = "flatly"),
@@ -267,7 +278,8 @@ ui <- page_sidebar(
           )
         ),
         nav_panel(
-          title = "AI金融助手",
+          title = "4. AI 金融助手",
+          
           div(class = "p-3",
             # 使用 shinychat 的聊天组件
             div(class = "row g-0",
@@ -277,14 +289,8 @@ ui <- page_sidebar(
                     chat_ui("chat", 
                             placeholder = "输入您的问题，例如：帮我分析一下苹果公司的股票...",
                             height = "500px"),
-                    # 聊天字体样式 - 强制统一
-                    tags$style("
-                      /* 强制将聊天窗口内所有元素的字体大小统一为 0.8rem */
-                      .chat-message * {
-                        font-size: 0.8rem !important;
-                        line-height: 1.4 !important;
-                      }
-                    "),
+                    # 聊天字体样式 - Markdown 标题差异化
+
                     # 操作按钮
                     div(class = "mt-2 d-flex justify-content-between align-items-center",
                         actionButton("clear_chat", "清空对话", 
@@ -301,17 +307,17 @@ ui <- page_sidebar(
                         ),
                         div(class = "card-body p-2",
                             div(class = "d-grid gap-2",
-                                actionButton("quick_q1", "📊 帮我分析当前股票的技术面", 
+                                actionButton("quick_q1", "📊 技术面分析", 
                                            class = "btn-outline-primary btn-sm text-start"),
-                                actionButton("quick_q2", "💰 解读最新的财务指标", 
+                                actionButton("quick_q2", "💰 财务解读", 
                                            class = "btn-outline-primary btn-sm text-start"),
-                                actionButton("quick_q3", "📈 预测未来走势", 
+                                actionButton("quick_q3", "📈 趋势预测", 
                                            class = "btn-outline-primary btn-sm text-start"),
-                                actionButton("quick_q4", "🎯 给出买卖建议", 
+                                actionButton("quick_q4", "🎯 买卖建议", 
                                            class = "btn-outline-primary btn-sm text-start"),
-                                actionButton("quick_q5", "📰 最近的重大新闻", 
+                                actionButton("quick_q5", "📰 重大新闻", 
                                            class = "btn-outline-primary btn-sm text-start"),
-                                actionButton("quick_q6", "❓ 解释什么是RSI指标", 
+                                actionButton("quick_q6", "❓ 指标解释", 
                                            class = "btn-outline-primary btn-sm text-start")
                             )
                         )
@@ -912,8 +918,8 @@ server <- function(input, output, session) {
       chat_history(updated_history)
       
       # 处理 AI 回复中的 Markdown (清理多余的标题符号以便在聊天框中更好看)
-      processed_response <- gsub("^(#+)\\s+", "", ai_response)
-      chat_append("chat", response = processed_response, role = "assistant")
+      #processed_response <- gsub("^(#+)\\s+", "", ai_response)
+      chat_append("chat", response = ai_response, role = "assistant")
       
     }, error = function(e) {
       error_msg <- paste("抱歉，处理您的请求时出现错误：", e$message)
@@ -939,8 +945,7 @@ server <- function(input, output, session) {
     })
   }, ignoreInit = TRUE, priority = -10)
 
-  observeEvent(input$chat_user_input, {
-    user_input <- input$chat_user_input
+  handle_user_message <- function(user_input) {
     req(trimws(user_input) != "")
     
     current_h <- chat_history()
@@ -963,10 +968,22 @@ server <- function(input, output, session) {
       }
       run_ai_chat_analysis(user_input = user_input, history_to_use = current_h, question_info = q_info)
     }
+  }
+
+  observeEvent(input$chat_user_input, {
+    handle_user_message(input$chat_user_input)
   })
 
+  # 快捷问题点击事件
+  observeEvent(input$quick_q1, { chat_append("chat", response = "📊 分析当前技术面", role = "user"); handle_user_message("帮我分析一下当前股票的技术面走势") })
+  observeEvent(input$quick_q2, { chat_append("chat", response = "💰 解读财务指标", role = "user"); handle_user_message("请解读一下该股票最新的财务报表和关键指标") })
+  observeEvent(input$quick_q3, { chat_append("chat", response = "📈 预测走势", role = "user"); handle_user_message("基于当前数据，预测一下未来一周的走势") })
+  observeEvent(input$quick_q4, { chat_append("chat", response = "🎯 买卖建议", role = "user"); handle_user_message("给出现在该股票的买卖策略建议") })
+  observeEvent(input$quick_q5, { chat_append("chat", response = "📰 重大新闻", role = "user"); handle_user_message("该股票最近有什么重大的新闻或公告？") })
+  observeEvent(input$quick_q6, { chat_append("chat", response = "❓ 指标解释", role = "user"); handle_user_message("请解释一下什么是 RSI 指标，在当前股票中如何应用？") })
+
   session$onFlushed(function() {
-    chat_append("chat", response = "您好！我是您的AI金融助手。", role = "assistant")
+    chat_append("chat", response = "您好！我是您的 AI 金融助手。您可以询问我关于股票的技术分析、财务解读或走势预测。", role = "assistant")
   }, once = TRUE)
 
   output$chat_status <- renderUI({
@@ -980,18 +997,13 @@ server <- function(input, output, session) {
 
   observeEvent(input$clear_chat, {
     chat_history(list())
+    chat_clear("chat")
+    chat_append("chat", response = "对话已清空。您可以开始新的咨询。", role = "assistant")
     showNotification("对话已清空", type = "message")
   })
   
-  observeEvent(input$quick_q1, { update_chat_user_input("chat", value = "请帮我分析当前股票的技术面，包括趋势、支撑阻力位和技术指标信号", submit = TRUE) })
-  observeEvent(input$quick_q2, { update_chat_user_input("chat", value = "请解读一下最新的财务指标，包括营收、利润、估值等", submit = TRUE) })
-  observeEvent(input$quick_q3, { update_chat_user_input("chat", value = "基于目前的技术面和基本面，请预测一下未来走势", submit = TRUE) })
-  observeEvent(input$quick_q4, { update_chat_user_input("chat", value = "基于当前分析，请给出具体的买卖建议和仓位管理", submit = TRUE) })
-  observeEvent(input$quick_q5, { update_chat_user_input("chat", value = "这只股票最近有什么重大新闻或事件吗？", submit = TRUE) })
-  observeEvent(input$quick_q6, { update_chat_user_input("chat", value = "请解释一下什么是RSI指标，如何使用它来辅助交易？", submit = TRUE) })
   
 }
 
 # Run app
 shinyApp(ui = ui, server = server)
-
