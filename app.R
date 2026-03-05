@@ -35,7 +35,7 @@ ui <- page_sidebar(
     tags$style("
       /* 聊天 Markdown 标题样式优化 */
       .shiny-chat-messages h1, .shiny-chat-messages h2, .shiny-chat-messages h3 {
-        font-size: 1.1rem !important;
+        font-size: 0.8rem !important;
         font-weight: bold;
         margin-top: 10px;
         margin-bottom: 5px;
@@ -397,7 +397,12 @@ server <- function(input, output, session) {
         ai_response <- result$choices[[1]]$message$content
       } else if (provider == "aliyun") {
         api_url <- "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
-        resp <- request(api_url) %>% req_method("POST") %>% req_headers(Authorization = paste0("Bearer ", aliyun_apiKey), "Content-Type" = "application/json") %>% req_body_json(list(model = model_id, messages = list(list(role = "user", content = query)), temperature = temperature, max_tokens = max_tokens)) %>% req_timeout(15) %>% req_perform()
+        resp <- request(api_url) %>% 
+          req_method("POST") %>% 
+          req_headers(`Authorization` = paste("Bearer", aliyun_apiKey), `Content-Type` = "application/json") %>% 
+          req_body_json(list(model = model_id, messages = list(list(role = "user", content = query)), temperature = temperature, max_tokens = max_tokens)) %>% 
+          req_timeout(30) %>% 
+          req_perform()
         result <- resp_body_json(resp)
         ai_response <- result$choices[[1]]$message$content
       }
@@ -454,7 +459,13 @@ server <- function(input, output, session) {
     } else if (provider == "minimax") {
       c("MiniMax-M2.5 (推荐)" = "MiniMax-M2.5")
     } else if (provider == "aliyun") {
-      c("通义千问 3.5 Plus" = "qwen3.5-plus")
+      c("通义千问 3.5 Plus" = "qwen3.5-plus",
+        "通义千问 3 Max" = "qwen3-max-2026-01-23",
+        "通义千问 3 Coder Next" = "qwen3-coder-next",
+        "通义千问 3 Coder Plus" = "qwen3-coder-plus",
+        "智谱 GLM-5" = "glm-5",
+        "智谱 GLM-4.7" = "glm-4.7",
+        "Moonshot Kimi K2.5" = "kimi-k2-5")
     }
     selectInput("ai_model", "选择模型", choices = choices)
   })
@@ -466,6 +477,12 @@ server <- function(input, output, session) {
                            "gemini-1.5-flash" = "Gemini 1.5 Flash",
                            "MiniMax-M2.5" = "MiniMax-M2.5",
                            "qwen3.5-plus" = "Qwen 3.5 Plus",
+                           "qwen3-max-2026-01-23" = "Qwen 3 Max",
+                           "qwen3-coder-next" = "Qwen 3 Coder Next",
+                           "qwen3-coder-plus" = "Qwen 3 Coder Plus",
+                           "glm-5" = "GLM-5",
+                           "glm-4.7" = "GLM-4.7",
+                           "kimi-k2-5" = "Kimi K2.5",
                            model)
     span(class = "badge bg-info", friendly_name)
   })
@@ -508,6 +525,17 @@ server <- function(input, output, session) {
            "1年" = 365, "2年" = 730, "5年" = 1825, "10年" = 3650, 365)
   })
 
+  # 辅助函数：创建数据单元格（单行显示）
+  data_cell <- function(label, value, value_color = "#fff", border = TRUE) {
+    border_style <- if(border) "border-right: 1px solid rgba(255,255,255,0.2);" else ""
+    div(
+      class = "col", 
+      style = paste0("padding: 6px 8px; font-size: 0.8rem; ", border_style),
+      span(class = "text-white-50", style = "font-size: 0.65rem; margin-right: 4px;", label),
+      span(style = paste0("font-weight: 600; color: ", value_color, ";"), value)
+    )
+  }
+  
   output$vbox_market_stats <- renderUI({
     data <- processed_ticker_data()
     if (is.null(data) || nrow(data) < 2) return("等待数据加载...")
@@ -515,26 +543,73 @@ server <- function(input, output, session) {
     latest <- tail(data, 1)
     prev <- tail(data, 2)[1]
     
+    # 价格数据
     price <- as.numeric(Cl(latest))
+    open_price <- as.numeric(Op(latest))
+    high_price <- as.numeric(Hi(latest))
+    low_price <- as.numeric(Lo(latest))
+    volume <- as.numeric(Vo(latest))
     change <- price - as.numeric(Cl(prev))
     pct_change <- (change / as.numeric(Cl(prev))) * 100
+    
+    # 计算平均成交量 (20日)
+    avg_volume <- mean(tail(Vo(data), 20), na.rm = TRUE)
+    
+    # 计算52周最高/最低 (约252个交易日)
+    data_1y <- tail(data, min(252, nrow(data)))
+    wk52_high <- max(Hi(data_1y), na.rm = TRUE)
+    wk52_low <- min(Lo(data_1y), na.rm = TRUE)
     
     # 简单的技术指标计算
     sma5 <- mean(tail(Cl(data), 5), na.rm = TRUE)
     sma20 <- mean(tail(Cl(data), 20), na.rm = TRUE)
     rsi <- tail(RSI(Cl(data), n = 14), 1)
     
+    # 格式化成交量
+    fmt_vol <- function(v) {
+      if (is.na(v)) return("--")
+      if (v >= 1e9) sprintf("%.2fB", v/1e9)
+      else if (v >= 1e6) sprintf("%.2fM", v/1e6)
+      else if (v >= 1e3) sprintf("%.2fK", v/1e3)
+      else sprintf("%.0f", v)
+    }
+    
+    # 涨跌颜色
+    change_color <- if(change >= 0) "#51cf66" else "#ff6b6b"
+    change_icon <- if(change >= 0) "▲" else "▼"
+    
+    # RSI 颜色
+    rsi_color <- if(is.na(rsi)) "#fff" else if(rsi > 70) "#ff6b6b" else if(rsi < 30) "#51cf66" else "#fff"
+    
+    # 量比
+    vol_ratio <- if(!is.na(volume) && !is.na(avg_volume) && avg_volume > 0) sprintf("%.2fx", volume/avg_volume) else "--"
+    
     div(
-      div(class = "d-flex justify-content-between",
-          span(sprintf("$%.2f", price), style = "font-size: 1.5rem; font-weight: bold;"),
-          span(sprintf("%+.2f (%+.2f%%)", change, pct_change), 
-               style = paste0("color: ", if(change >= 0) "#2ecc71" else "#e74c3c", "; font-weight: bold;"))),
-      div(class = "mt-2", style = "font-size: 0.8rem; opacity: 0.8;",
-          span(paste0("SMA(5): ", round(sma5, 2))),
-          span(" | ", style = "margin: 0 5px;"),
-          span(paste0("SMA(20): ", round(sma20, 2))),
-          span(" | ", style = "margin: 0 5px;"),
-          span(paste0("RSI(14): ", if(!is.na(rsi)) round(rsi, 1) else "--")))
+      class = "d-flex align-items-center",
+      # 左侧：价格区域（独立于表格）
+      div(style = "padding-right: 15px; margin-right: 15px; border-right: 1px solid rgba(255,255,255,0.2);",
+          div(sprintf("$%.2f", price), style = "font-size: 1.5rem; font-weight: 700; color: #fff;"),
+          div(sprintf("%s %.2f (%+.2f%%)", change_icon, abs(change), pct_change), 
+              style = paste0("font-size: 0.85rem; font-weight: 600; color: ", change_color, ";"))
+      ),
+      
+      # 右侧：数据表格
+      div(style = "flex: 1;",
+          div(class = "row g-0",
+              data_cell("Open", sprintf("$%.2f", open_price)),
+              data_cell("High", sprintf("$%.2f", high_price), "#51cf66"),
+              data_cell("Low", sprintf("$%.2f", low_price), "#ff6b6b"),
+              data_cell("Vol", fmt_vol(volume)),
+              data_cell("Avg.Vol", fmt_vol(avg_volume), "#fff", FALSE)
+          ),
+          div(class = "row g-0 border-top", style = "border-top: 1px solid rgba(255,255,255,0.15);",
+              data_cell("Ratio", vol_ratio),
+              data_cell("52wk-H", sprintf("$%.2f", wk52_high), "#51cf66"),
+              data_cell("52wk-L", sprintf("$%.2f", wk52_low), "#ff6b6b"),
+              data_cell("SMA5", round(sma5, 2)),
+              data_cell("RSI", if(!is.na(rsi)) round(rsi, 1) else "--", rsi_color, FALSE)
+          )
+      )
     )
   })
 
@@ -558,17 +633,15 @@ server <- function(input, output, session) {
     fmt_ret <- function(val) {
       if (is.na(val)) return(span("--", class = "text-muted"))
       color <- if(val >= 0) "#2ecc71" else "#e74c3c"
-      span(sprintf("%+.1f%%", val), style = paste0("color: ", color, "; font-weight: bold;"))
+      span(sprintf("%+.1f%%", val), style = paste0("color: ", color, "; font-weight: 600; font-size: 1.1rem;"))
     }
     
     div(
-      layout_column_wrap(
-        width = 1/2,
-        div(div("近1月", style = "font-size: 0.7rem;"), fmt_ret(ret_1m)),
-        div(div("近3月", style = "font-size: 0.7rem;"), fmt_ret(ret_3m)),
-        div(div("近6月", style = "font-size: 0.7rem;"), fmt_ret(ret_6m)),
-        div(div("近1年", style = "font-size: 0.7rem;"), fmt_ret(ret_1y))
-      )
+      class = "d-flex justify-content-between text-center",
+      div(div("近1月", class = "text-muted", style = "font-size: 0.75rem;"), fmt_ret(ret_1m)),
+      div(div("近3月", class = "text-muted", style = "font-size: 0.75rem;"), fmt_ret(ret_3m)),
+      div(div("近6月", class = "text-muted", style = "font-size: 0.75rem;"), fmt_ret(ret_6m)),
+      div(div("近1年", class = "text-muted", style = "font-size: 0.75rem;"), fmt_ret(ret_1y))
     )
   })
 
@@ -810,6 +883,31 @@ server <- function(input, output, session) {
     if ("BBands" %in% selected_indicators && nrow(data) >= 20) cs <- add_BBands(n = 20)
     if ("MACD" %in% selected_indicators && nrow(data) >= 26) cs <- add_MACD()
     if ("RSI" %in% selected_indicators && nrow(data) >= 14) cs <- add_RSI(n = 14)
+    if ("ADX" %in% selected_indicators && nrow(data) >= 14) cs <- add_ADX(n = 14)
+    if ("SAR" %in% selected_indicators && nrow(data) >= 5) {
+      sar_values <- SAR(HLC(data))
+      cs <- add_TA(sar_values, on = 1, col = "purple", lwd = 2)
+    }
+    if ("OBV" %in% selected_indicators && nrow(data) >= 2) {
+      obv_values <- OBV(Cl(data), Vo(data))
+      cs <- add_TA(obv_values, col = "blue", lwd = 2)
+    }
+    if ("MFI" %in% selected_indicators && nrow(data) >= 14) {
+      mfi_values <- MFI(HLC(data), Vo(data), n = 14)
+      cs <- add_TA(mfi_values, col = "orange", lwd = 2)
+    }
+    if ("CLV" %in% selected_indicators) {
+      clv_values <- CLV(HLC(data))
+      cs <- add_TA(clv_values, col = "darkgreen", lwd = 2)
+    }
+    if ("TR" %in% selected_indicators && nrow(data) >= 2) {
+      tr_values <- TR(HLC(data))[, "tr"]
+      cs <- add_TA(tr_values, col = "brown", lwd = 2)
+    }
+    if ("ATR" %in% selected_indicators && nrow(data) >= 14) {
+      atr_values <- ATR(HLC(data), n = 14)[, "atr"]
+      cs <- add_TA(atr_values, col = "red", lwd = 2)
+    }
     if ("SuperTrend" %in% selected_indicators) {
       st_res <- SuperTrend(HLC(data), n = 10, factor = 3)
       st_line <- st_res$supertrend; st_dir <- st_res$direction
