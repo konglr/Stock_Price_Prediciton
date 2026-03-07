@@ -202,7 +202,7 @@ ui <- bslib::page_sidebar(
     bslib::card(
       full_screen = TRUE,
       style = "height: 70vh; min-height: 500px;",
-      bslib::card_header("股��价格趋势分析 (quantmod)"),
+      bslib::card_header("股票价格趋势分析 (quantmod)"),
       bslib::card_body(
         padding = 0,
         shiny::plotOutput(outputId = "plot", height = "100%")
