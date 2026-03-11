@@ -14,7 +14,7 @@ app.R (1829 lines) - Main Shiny app with AI chat, technical indicators, backtest
 
 **Data Flow**: User Input → quantmod fetch → Strategy signals → Backtest engine → Multi-LLM analysis → Visualization
 
-## 🔑 API Configurations (Verified 2026-03-05)
+## 🔑 API Configurations (Verified 2026-03-11)
 
 All keys in `.Renviron` (gitignored). **Reference `.agent/skills-summary.md` for latest**:
 
@@ -24,6 +24,13 @@ All keys in `.Renviron` (gitignored). **Reference `.agent/skills-summary.md` for
 | NVIDIA NIM | `NV_API_KEY` | `https://integrate.api.nvidia.com/v1` | glm-4.7, minimax-m2.1 |
 | 阿里云 DashScope | `ALIYUNCS_API_KEY` | `https://coding.dashscope.aliyuncs.com/v1` | qwen3.5-plus, qwen3-max, glm-5 |
 | Google Gemini | `GEMINI_API_KEY` | - | gemini-2.5-flash (supports google_search) |
+| Alpha Vantage | `ALPHA_VANTAGE_API_KEY` | `https://www.alphavantage.co/query` | TIME_SERIES_DAILY, SMA, MACD, RSI |
+| Alpaca Markets | `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY` | `https://data.alpaca.markets/v2` | stocks/bars (15min limit free) |
+| Finnhub | `FINNHUB_API_KEY` | `https://finnhub.io/api/v1` | quote (free), candle (Premium) |
+| Twelve Data | `TWELVEDATA_API_KEY` | `https://api.twelvedata.com` | time_series (5yr, 800 calls/day free) |
+| FMP | `FMP_API_KEY` | `https://financialmodelingprep.com/api/v3` | historical-price-full (5yr, 250/day) |
+| EODHD | `EODHD_API_KEY` | `https://eodhd.com/api` | eod (5yr, 20/day) |
+| AkShare | N/A (pip install) | Python library | A股/港股/期货/宏观 |
 
 ## 📐 Critical Code Patterns
 
@@ -163,5 +170,5 @@ rsconnect::writeManifest(appDir = ".", appPrimaryDoc = "app.R")
 | `test_api/minimax_openai_sdk_test.py` | API testing pattern |
 
 ---
-**Last Updated**: 2026-03-05
+**Last Updated**: 2026-03-11
 **Source of Truth**: `.agent/skills-summary.md` for all API configurations
