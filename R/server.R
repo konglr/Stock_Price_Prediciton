@@ -1,4 +1,4 @@
-# ==============================================================================
+
 # StockAI - Server 模块
 # ==============================================================================
 # 本文件包含 Shiny Server 的完整逻辑
@@ -70,7 +70,7 @@ server <- function(input, output, session) {
   })
   
   output$selected_model_badge <- renderUI({
-    model <- input$ai_model %||% "gemini-1.5-flash"
+      model <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
     friendly_name <- get_model_friendly_name(model)
     span(class = "badge bg-info", friendly_name)
   })
@@ -107,7 +107,7 @@ server <- function(input, output, session) {
     
     ticker <- current_ticker()
     provider <- input$ai_provider
-    model_id <- input$ai_model %||% "gemini-1.5-flash"
+    model_id <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
     temperature <- input$ai_temperature %||% 0.7
     max_tokens <- input$ai_max_tokens %||% 1024
     
@@ -115,7 +115,7 @@ server <- function(input, output, session) {
       result <- run_ai_report(
         ticker        = ticker,
         provider      = provider,
-        model_id      = model_id,
+        model_id      = input$ai_model %||% "gemini-3.1-flash-lite-preview",
         temperature   = temperature,
         max_tokens    = max_tokens,
         enable_search = input$ai_enable_search
@@ -246,7 +246,7 @@ server <- function(input, output, session) {
         current_ticker = ticker,
         current_data  = data,
         provider      = input$ai_provider,
-        model_id      = input$ai_model %||% "gemini-1.5-flash",
+        model_id      = input$ai_model %||% "gemini-3.1-flash-lite-preview",
         temperature   = input$ai_temperature %||% 0.7,
         max_tokens    = input$ai_max_tokens %||% 1024,
         enable_search = input$ai_enable_search
@@ -299,7 +299,7 @@ server <- function(input, output, session) {
       user_question  = user_input,
       current_ticker = isolate(current_ticker()),
       provider       = input$ai_provider,
-      model_id       = input$ai_model %||% "gemini-1.5-flash"
+      model_id       = input$ai_model %||% "gemini-3.1-flash-lite-preview"
     )
     
     is_switching <- q_info$need_data && q_info$switch_stock && 
@@ -358,7 +358,7 @@ server <- function(input, output, session) {
     if (chat_loading()) {
       span(class = "badge bg-warning", "AI 正在分析中...")
     } else {
-      model <- input$ai_model %||% "gemini-1.5-flash"
+      model <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
       span(class = "badge bg-success", paste("已连接", model))
     }
   })

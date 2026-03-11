@@ -9,5 +9,11 @@
     "*.parquet": "duckdb.dataFileViewer",
     "*.csv": "duckdb.dataFileViewer",
     "*.tsv": "duckdb.dataFileViewer"
-  }
+},
+"chat.tools.terminal.autoApprove": {
+    "/^cd \"/Users/clarkkong/Library/Mobile Documents/com~apple~CloudDocs/R Projects/Stock_Price_Prediction\" && Rscript test_api/debug_gemini_response2\\.R 2>&1$/": {
+        "approve": true,
+        "matchCommandLine": true
+    }
+}
  }

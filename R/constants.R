@@ -103,8 +103,7 @@ AI_PROVIDERS <- list(
 # ------------------------------------------------------------------------------
 AI_MODELS <- list(
   gemini = c(
-    "Gemini 1.5 Pro"  = "gemini-1.5-pro",
-    "Gemini 1.5 Flash" = "gemini-1.5-flash"
+    "Gemini 3.1 Flash Lite (推荐)" = "gemini-3.1-flash-lite-preview"
   ),
   minimax = c(
     "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5"

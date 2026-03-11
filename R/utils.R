@@ -134,8 +134,7 @@ extract_json <- function(text) {
 #' @return 友好名称
 get_model_friendly_name <- function(model_id) {
   switch(model_id,
-    "gemini-1.5-pro"       = "Gemini 1.5 Pro",
-    "gemini-1.5-flash"     = "Gemini 1.5 Flash",
+    "gemini-3.1-flash-lite-preview" = "Gemini 3.1 Flash Lite",
     "MiniMax-M2.5"         = "MiniMax-M2.5",
     "qwen3.5-plus"         = "Qwen 3.5 Plus",
     "qwen3-max-2026-01-23" = "Qwen 3 Max",

@@ -116,7 +116,7 @@ source("R/server.R")         # 11. Server（依赖所有模块）
 ## 4. Google Gemini API
 
 * **API Key 环境变量**: `GEMINI_API_KEY`
-* **最新验证模型**: `gemini-2.5-flash`
+* **最新验证模型**: `gemini-3.1-flash-lite-preview`
 * **特色功能**: 支持 `google_search` grounding 工具。
 * **角色规范**: 历史消息中模型角色必须使用 `"model"` 而不是 `"assistant"`。
 
