@@ -53,6 +53,7 @@ source("R/utils.R")
 
 # 2. 核心模块
 source("R/mod_data.R")
+source("R/mod_data_eastmoney.R")  # 东方财富数据模块
 source("R/api_providers.R")
 
 # 3. 功能模块

@@ -65,10 +65,10 @@ convert_ticker_for_source <- function(ticker, source = "yahoo") {
 #' @return xts OHLC 数据，失败返回 NULL
 fetch_ticker_data <- function(ticker, from = Sys.Date() - 3650, to = Sys.Date(), source = "yahoo") {
   if (is.null(ticker) || ticker == "") return(NULL)
-  
+
   # 转换代码格式
   target_ticker <- convert_ticker_for_source(ticker, source)
-  
+
   tryCatch({
     if (source == "yahoo") {
       quantmod::getSymbols(
@@ -80,6 +80,12 @@ fetch_ticker_data <- function(ticker, from = Sys.Date() - 3650, to = Sys.Date(),
       )
     } else if (source == "alphavantage") {
       fetch_alphavantage_data(target_ticker, from = from, to = to)
+    } else if (source == "twelvedata") {
+      fetch_twelvedata_data(target_ticker, from = from, to = to)
+    } else if (source == "eastmoney") {
+      # 东方财富需要判断市场类型
+      market <- detect_market(ticker)
+      fetch_eastmoney_data(ticker, market = market, from = from, to = to)
     } else {
       stop("不支持的数据源")
     }
@@ -156,6 +162,104 @@ fetch_alphavantage_data <- function(ticker, from, to) {
   res_xts <- res_xts[paste0(from, "/", to)]
   
   return(res_xts)
+}
+
+# ------------------------------------------------------------------------------
+# 从 Twelve Data 获取股票数据
+# ------------------------------------------------------------------------------
+#' 从 Twelve Data 获取股票数据
+#' @param ticker 格式化后的股票代码
+#' @param from 开始日期
+#' @param to 结束日期
+#' @return xts OHLC 数据
+fetch_twelvedata_data <- function(ticker, from, to) {
+  api_key <- Sys.getenv("TWELVEDATA_API_KEY")
+  if (api_key == "") stop("未配置 TWELVEDATA_API_KEY 环境变量")
+
+  # 转换日期格式 (YYYY-MM-DD)
+  from_str <- as.character(from)
+  to_str <- as.character(to)
+
+  # 构造请求
+  req <- request("https://api.twelvedata.com/time_series") |>
+    req_url_query(
+      symbol = ticker,
+      interval = "1day",
+      start_date = from_str,
+      end_date = to_str,
+      adjusted = "true",  # 获取调整后数据（考虑分红、拆股等）
+      apikey = api_key
+    ) |>
+    req_retry(max_tries = 3)
+
+  resp <- req_perform(req)
+  content <- resp_body_json(resp)
+
+  # 检查错误
+  if (!is.null(content$code) && content$code != 200) {
+    stop(paste("Twelve Data API 错误:", content$message))
+  }
+
+  if (is.null(content$values)) {
+    stop("未找到时间序列数据，请检查代码是否正确")
+  }
+
+  # 解析数据
+  ts_data <- content$values
+
+  # 转换为 data.frame (按日期升序)
+  df <- do.call(rbind, lapply(seq_along(ts_data), function(i) {
+    item <- ts_data[[i]]
+    data.frame(
+      Date = as.Date(item$datetime),
+      Open = as.numeric(item$open),
+      High = as.numeric(item$high),
+      Low = as.numeric(item$low),
+      Close = as.numeric(item$close),
+      Volume = as.numeric(item$volume),
+      stringsAsFactors = FALSE
+    )
+  }))
+
+  # 排序并转换为 xts
+  df <- df[order(df$Date), ]
+  res_xts <- xts::xts(df[, -1], order.by = df$Date)
+
+  # 裁剪日期范围
+  res_xts <- res_xts[paste0(from, "/", to)]
+
+  return(res_xts)
+}
+
+# ------------------------------------------------------------------------------
+# 市场类型识别
+# ------------------------------------------------------------------------------
+#' 自动识别股票代码所属市场
+#' @param ticker 股票代码
+#' @return 市场类型: "A", "HK", "US"
+detect_market <- function(ticker) {
+  if (is.null(ticker) || ticker == "") return("A")
+
+  # 去除后缀
+  std_ticker <- extract_standard_ticker(ticker)
+
+  # 港股: 4-5位数字 (如 00700, 0700, 9988)
+  if (grepl("^[0-9]+$", std_ticker) && nchar(std_ticker) >= 4 && nchar(std_ticker) <= 5) {
+    return("HK")
+  }
+
+  # A股: 6位数字，以 0, 3, 6 开头
+  if (grepl("^[036][0-9]{5}$", std_ticker)) {
+    return("A")
+  }
+
+  # 美股: 字母为主 (如 AAPL, MSFT)
+  if (grepl("^[A-Za-z]+$", std_ticker)) {
+    return("US")
+  }
+
+  # 默认返回 A 股
+  return("A")
 }
 
 # ------------------------------------------------------------------------------

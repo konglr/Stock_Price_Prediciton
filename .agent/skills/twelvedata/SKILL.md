@@ -6,18 +6,38 @@
 * **认证方式**: URL 参数 `?apikey=api_key` 或 Header `TD-API-KEY: api_key`
 * **文档**: https://twelvedata.com/docs
 
-## 数据可用性
+## 数据可用性 (免费版)
 
-| 数据类型 | 免费限制 | 付费 |
+| 数据类型 | 免费限制 | 备注 |
 |----------|----------|------|
-| **Time Series (K线)** | 800 API calls/day, 5年历史 | 更多 |
-| **Quote (实时报价)** | ✅ | ✅ |
-| **Stock Search** | ✅ | ✅ |
-| **Company Info** | ✅ | ✅ |
-| **Technical Indicators** | ✅ | ✅ |
-| **Cryptocurrency** | ✅ | ✅ |
-| **Forex** | ✅ | ✅ |
-| **Economic Data** | 部分 | 完整 |
+| **Time Series (K线)** | 800 API calls/day, 5年历史 | ⚠️ 仅美股可获取5年，A/港股受限 |
+| **Quote (实时报价)** | ✅ | |
+| **Stock Search** | ✅ | |
+| **Company Info** | ✅ | |
+| **Technical Indicators** | ✅ | |
+| **Cryptocurrency** | ✅ | |
+| **Forex** | ✅ | |
+
+## 免费版市场支持 (2026-03-13 测试)
+
+| 市场 | 免费支持 | 备注 |
+|------|----------|------|
+| **美股** | ✅ 完整 | 主要支持，无限制 |
+| **A股 (深圳)** | ⚠️ 少数 | 仅 000001 等少数股票 |
+| **A股 (上海)** | ❌ 付费 | 大部分需要 Pro/Venture |
+| **港股** | ❌ 付费 | 需要 Pro/Venture |
+| **美股中概股** | ⚠️ 有限 | BABA, JD 等需付费 |
+
+### 测试结果
+
+| 股票代码 | 名称 | 结果 |
+|----------|------|------|
+| AAPL | 苹果 | ✅ 成功 |
+| MSFT | 微软 | ✅ 成功 |
+| 000001 | 平安银行 | ✅ 成功 (23条) |
+| 600519 | 茅台 | ❌ 需 Pro/Venture |
+| 00700 | 腾讯 | ❌ 需 Pro/Venture |
+| 9988 | 阿里 | ❌ 需 Pro/Venture |
 
 ## 主要端点
 

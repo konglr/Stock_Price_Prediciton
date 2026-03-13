@@ -73,7 +73,7 @@ source("R/server.R")         # 11. Server（依赖所有模块）
 * **Base URLs**:
     * OpenAI 兼容协议：`https://coding.dashscope.aliyuncs.com/v1`
     * Anthropic 兼容协议：`https://coding.dashscope.aliyuncs.com/apps/anthropic`
-* **已验证模型 (2026-03-02)**:
+* **已验证模型 (2026-03-13)**:
     * `qwen3.5-plus`
     * `qwen3-max-2026-01-23`
     * `qwen3-coder-next`
@@ -81,6 +81,7 @@ source("R/server.R")         # 11. Server（依赖所有模块）
     * `glm-5`
     * `glm-4.7`
     * `kimi-k2-5`
+    * `MiniMax-M2.5` (⚠️ 需测试)
 * **R 示例**:
     ```r
     apiKey <- Sys.getenv("ALIYUNCS_API_KEY")
@@ -97,7 +98,9 @@ source("R/server.R")         # 11. Server（依赖所有模块）
 * **API Endpoints**:
     * **OpenAI 兼容**: `https://api.minimax.chat/v1` (使用 `/v1/chat/completions`)
     * **Native V2**: `https://api.minimax.chat/v1/text/chatcompletion_v2` (推荐，支持 reasoning)
-* **推荐模型**: `MiniMax-M2.5`, `MiniMax-M2.1`
+* **可用模型 (2026-03-13)**:
+    * `MiniMax-M2.5` (推荐)
+    * `MiniMax-M2.1`
 * **注意**: `MiniMax-M2.5` 支持推理模式，若 `content` 为空，请检查 `reasoning_content`。
 
 ---
@@ -131,6 +134,7 @@ source("R/server.R")         # 11. Server（依赖所有模块）
 | 阿里云 | Qwen 3.5 Plus | ❌ 不支持 | 模型本身不支持工具调用 |
 
 ---
+
 
 ## 6. quantmod chart_Series 指标
 
@@ -571,19 +575,22 @@ df = ak.stock_hsgt_hist()
 
 ### 国际股票数据
 
-| 数据源 | 历史K线 | 免费限制 | 特色 |
-|--------|---------|----------|------|
-| **Twelve Data** | ✅ 5年 | 800次/天 | 性价比最高 |
-| **FMP** | ✅ 5年 | 250次/天 | 财务报表丰富 |
-| **EODHD** | ✅ 5年 | 20次/天 | 50+交易所 |
-| **Alpha Vantage** | ✅ 20年 | 5次/分钟 | 技术指标 |
-| **Alpaca (IEX)** | ❌ 仅15分钟 | 免费 | 实时交易 |
-| **Finnhub** | ❌ 需Premium | 付费 | K线需付费 |
+| 数据源 | 历史K线 | 免费限制 | 特色 | 状态 |
+|--------|---------|----------|------|------|
+| **Yahoo Finance** | ✅ 完整 | 无限制 | 数据最完整 | ✅ 已集成 |
+| **东方财富** | ✅ 完整 | 免费无需Key | A股/美股/港股全支持 | ⚠️ 代码已实现 |
+| **Twelve Data** | ✅ 5年+ (美股) / ⚠️ A股受限 | 800次/天 | 美股完整，A/港股需付费 | ✅ 已集成 |
+| **Alpha Vantage** | ✅ 100天 (日线) / 26年 (周线) | 5次/分钟 | 技术指标 | ✅ 已集成 |
+| **FMP** | ✅ 5年 | 250次/天 | 财务报表丰富 | ⚠️ 未集成 |
+| **EODHD** | ✅ 5年 | 20次/天 | 50+交易所 | ⚠️ 未集成 |
+| **Alpaca (IEX)** | ❌ 仅15分钟 | 免费 | 实时交易 | ⚠️ 未集成 |
+| **Finnhub** | ❌ 需Premium | 付费 | K线需付费 | ⚠️ 未集成 |
 
 ### 中国A股数据
 
 | 数据源 | 特点 | 限制 |
 |--------|------|------|
+| **东方财富** | A股数据全 | 免费无需Key |
 | **AkShare** | 最全中文数据 | 开源免费 |
 | **Tushare Pro** | 需积分 | 付费 |
 | **Yahoo Finance** | 免费 | 格式需转换 |
@@ -592,6 +599,9 @@ df = ak.stock_hsgt_hist()
 
 ## 更新记录
 - 2026-03-13: **完成 Alpha Vantage 数据源全流程集成**。实现智能代码转换（SHH/SHZ/HKG）、UI 数据源切换、频率限制异常处理、数据对齐。
+- 2026-03-13: 更新 AI 模型列表：MiniMax 新增 M2.1，阿里云新增 Qwen3 Coder、GLM-5/4.7、Kimi K2.5、MiniMax-M2.5。
+- 2026-03-13: **集成 Twelve Data 数据源**。免费版支持5年+历史K线数据 (实测1556条)，800次/天调用限制。
+- 2026-03-13: **新增东方财富数据源**。无需 API Key，支持 A 股和美股数据。
 - 2026-03-11: 新增 AkShare 中国金融数据 API (Python开源库)
 - 2026-03-11: 新增 EODHD API，支持50+交易所 (免费20次/天)
 - 2026-03-11: 新增 FMP (Financial Modeling Prep) API，财务报表丰富 (免费250次/天)

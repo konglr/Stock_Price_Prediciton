@@ -106,13 +106,18 @@ AI_MODELS <- list(
     "Gemini 3.1 Flash Lite (推荐)" = "gemini-3.1-flash-lite-preview"
   ),
   minimax = c(
-    "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5"
+    "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5",
+    "MiniMax-M2.1" = "MiniMax-M2.1"
   ),
   aliyun = c(
     "Qwen 3.5 Plus" = "qwen3.5-plus",
     "Qwen 3 Max" = "qwen3-max-2026-01-23",
+    "Qwen3 Coder Next" = "qwen3-coder-next",
+    "Qwen3 Coder Plus" = "qwen3-coder-plus",
     "GLM-5" = "glm-5",
-    "GLM-4.7" = "glm-4.7"
+    "GLM-4.7" = "glm-4.7",
+    "Kimi K2.5" = "kimi-k2-5",
+    "MiniMax-M2.5" = "MiniMax-M2.5"
   )
 )
 
@@ -168,7 +173,12 @@ QUICK_QUESTIONS <- list(
 # ------------------------------------------------------------------------------
 # 数据源配置
 # ------------------------------------------------------------------------------
-DATA_SOURCES <- c("Yahoo Finance" = "yahoo", "Alpha Vantage" = "alphavantage")
+DATA_SOURCES <- c(
+  "Yahoo Finance" = "yahoo",
+  "Alpha Vantage" = "alphavantage",
+  "Twelve Data" = "twelvedata",
+  "东方财富" = "eastmoney"
+)
 
 DATA_SOURCE_INFO <- list(
   "yahoo" = list(
@@ -182,6 +192,18 @@ DATA_SOURCE_INFO <- list(
     env_key    = "ALPHA_VANTAGE_API_KEY",
     limit_text = "免费版限制：5次/分钟，仅最近100天数据",
     suffixes = list(sh = ".SHH", sz = ".SHZ", hk = ".HKG")
+  ),
+  "twelvedata" = list(
+    name       = "Twelve Data",
+    env_key    = "TWELVEDATA_API_KEY",
+    limit_text = "免费：800次/天，美股5年+，A股/港股需付费",
+    suffixes = list(sh = "", sz = "", hk = "")
+  ),
+  "eastmoney" = list(
+    name       = "东方财富",
+    env_key    = NULL,  # 无需 API Key
+    limit_text = "免费无需Key，支持A股/美股/港股",
+    suffixes = list(sh = "", sz = "", hk = "")  # 代码转换在函数内部处理
   )
 )
 
