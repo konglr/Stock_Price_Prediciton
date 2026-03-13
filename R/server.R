@@ -106,14 +106,19 @@ server <- function(input, output, session) {
     ai_grounding(NULL)
     
     ticker <- current_ticker()
+    data <- processed_ticker_data()
+    stats <- get_stock_stats(data)
     provider <- input$ai_provider
     model_id <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
     temperature <- input$ai_temperature %||% 0.7
-    max_tokens <- input$ai_max_tokens %||% 1024
+    max_tokens <- input$ai_max_tokens %||% 2048
     
     tryCatch({
       result <- run_ai_report(
         ticker        = ticker,
+        data          = data,
+        stats         = stats,
+        search_result = NULL,  # 可以后续添加联网搜索结果
         provider      = provider,
         model_id      = input$ai_model %||% "gemini-3.1-flash-lite-preview",
         temperature   = temperature,
@@ -141,6 +146,7 @@ server <- function(input, output, session) {
   
   output$plot <- renderPlot({
     data <- processed_ticker_data()
+    
     if (is.null(data) || nrow(data) < 2) return(NULL)
     
     days_to_show <- period_days()

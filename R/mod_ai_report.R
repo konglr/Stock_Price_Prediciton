@@ -9,11 +9,80 @@
 # ------------------------------------------------------------------------------
 #' 构建 AI 联网分析提示词
 #' @param ticker 股票代码
+#' @param data 股票 K 线数据
+#' @param stats 股票统计信息 (列表)
+#' @param search_result 联网搜索结果
+#' @param provider AI 提供商
+#' @param model_id 模型 ID
 #' @return 提示词字符串
-build_ai_report_prompt <- function(ticker) {
+build_ai_report_prompt <- function(ticker, data = NULL, stats = NULL, search_result = NULL, provider = "minimax", model_id = "") {
+  
+  # 构建基础提示词
+  base_prompt <- paste0(
+    "你是一位顶尖的华尔街量化投资专家。请针对股票 ", ticker, " 进行深度投研分析。"
+  )
+  
+  # 构建 K 线数据部分
+  kline_text <- ""
+  if (!is.null(data) && nrow(data) > 0) {
+    # 获取最近 100 天数据
+    kline_data <- tail(data, 100)
+    
+    # 转换为数据框格式
+    kline_df <- data.frame(
+      Date = index(kline_data),
+      Open = as.numeric(Op(kline_data)),
+      High = as.numeric(Hi(kline_data)),
+      Low = as.numeric(Lo(kline_data)),
+      Close = as.numeric(Cl(kline_data)),
+      Volume = as.numeric(Vo(kline_data))
+    )
+    
+    kline_text <- paste0(
+      "\n\n## 最近 100 个交易日 K 线数据：\n",
+      "日期,开盘价,最高价,最低价,收盘价,成交量\n"
+    )
+    
+    for (i in 1:nrow(kline_df)) {
+      kline_text <- paste0(kline_text,
+        kline_df$Date[i], ",",
+        round(kline_df$Open[i], 2), ",",
+        round(kline_df$High[i], 2), ",",
+        round(kline_df$Low[i], 2), ",",
+        round(kline_df$Close[i], 2), ",",
+        kline_df$Volume[i], "\n"
+      )
+    }
+  }
+  
+  # 构建统计信息部分
+  stats_text <- ""
+  if (!is.null(stats) && length(stats) > 0) {
+    stats_text <- "\n\n## 关键统计指标：\n"
+    
+    if (!is.null(stats$latest_price)) stats_text <- paste0(stats_text, "最新价格: $", round(stats$latest_price, 2), "\n")
+    if (!is.null(stats$change_pct)) stats_text <- paste0(stats_text, "涨跌幅: ", round(stats$change_pct, 2), "%\n")
+    if (!is.null(stats$volume)) stats_text <- paste0(stats_text, "成交量: ", format(stats$volume, big.mark=","), "\n")
+    if (!is.null(stats$high_52w)) stats_text <- paste0(stats_text, "52周最高: $", round(stats$high_52w, 2), "\n")
+    if (!is.null(stats$low_52w)) stats_text <- paste0(stats_text, "52周最低: $", round(stats$low_52w, 2), "\n")
+    if (!is.null(stats$sma_20)) stats_text <- paste0(stats_text, "SMA(20): $", round(stats$sma_20, 2), "\n")
+    if (!is.null(stats$sma_50)) stats_text <- paste0(stats_text, "SMA(50): $", round(stats$sma_50, 2), "\n")
+    if (!is.null(stats$rsi)) stats_text <- paste0(stats_text, "RSI(14): ", round(stats$rsi, 2), "\n")
+  }
+  
+  # 构建联网搜索结果部分
+  search_text <- ""
+  if (!is.null(search_result) && nchar(search_result) > 0) {
+    search_text <- paste0("\n\n## 联网搜索结果：\n", search_result)
+  }
+  
+  # 组合完整提示词
   paste0(
-    "你是一位顶尖的华尔街量化投资专家。请针对股票 ", ticker, " 进行深度联网投研分析。",
-    "\n请根据当前市场环境、近期新闻、财务状况和技术面，提供以下 JSON 格式的回复：",
+    base_prompt,
+    kline_text,
+    stats_text,
+    search_text,
+    "\n\n请根据以上数据，提供以下 JSON 格式的回复：",
     "\n{",
     "\n  \"trend\": \"看多/看空/中性\",",
     "\n  \"news\": \"最近 3 条核心新闻摘要及影响\",",
@@ -33,21 +102,34 @@ build_ai_report_prompt <- function(ticker) {
 # ------------------------------------------------------------------------------
 #' 运行 AI 联网分析
 #' @param ticker 股票代码
+#' @param data 股票 K 线数据
+#' @param stats 股票统计信息 (列表)
+#' @param search_result 联网搜索结果
 #' @param provider AI 提供商
 #' @param model_id 模型 ID
 #' @param temperature 温度参数
 #' @param max_tokens 最大 token 数
 #' @param enable_search 是否启用联网搜索
 #' @return 包含 prediction 和 grounding 的列表
-run_ai_report <- function(ticker, provider, model_id, temperature = 0.7, max_tokens = 1024, enable_search = FALSE) {
-  prompt <- build_ai_report_prompt(ticker)
+run_ai_report <- function(ticker, data = NULL, stats = NULL, search_result = NULL, 
+                          provider, model_id, temperature = 0.7, max_tokens = 2048, 
+                          enable_search = FALSE) {
+  
+  prompt <- build_ai_report_prompt(
+    ticker        = ticker,
+    data          = data,
+    stats         = stats,
+    search_result = search_result,
+    provider      = provider,
+    model_id      = model_id
+  )
   
   result <- call_ai_api(
-    provider     = provider,
-    model_id     = model_id,
-    prompt       = prompt,
-    temperature  = temperature,
-    max_tokens   = max_tokens,
+    provider      = provider,
+    model_id      = model_id,
+    prompt        = prompt,
+    temperature   = temperature,
+    max_tokens    = max_tokens,
     enable_search = enable_search
   )
   

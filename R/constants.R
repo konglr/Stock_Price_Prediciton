@@ -109,13 +109,10 @@ AI_MODELS <- list(
     "MiniMax-M2.5 (推荐)" = "MiniMax-M2.5"
   ),
   aliyun = c(
-    "通义千问 3.5 Plus"      = "qwen3.5-plus",
-    "通义千问 3 Max"         = "qwen3-max-2026-01-23",
-    "通义千问 3 Coder Next"  = "qwen3-coder-next",
-    "通义千问 3 Coder Plus"  = "qwen3-coder-plus",
-    "智谱 GLM-5"            = "glm-5",
-    "智谱 GLM-4.7"          = "glm-4.7",
-    "Moonshot Kimi K2.5"    = "kimi-k2-5"
+    "Qwen 3.5 Plus" = "qwen3.5-plus",
+    "Qwen 3 Max" = "qwen3-max-2026-01-23",
+    "GLM-5" = "glm-5",
+    "GLM-4.7" = "glm-4.7"
   )
 )
 

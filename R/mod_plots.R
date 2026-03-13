@@ -124,7 +124,12 @@ render_ai_report_ui <- function(prediction, loading = FALSE) {
     return(htmltools::div(class = "alert alert-danger", prediction$error))
   }
   
-  bslib::tagList(
+  htmltools::tagList(
+    htmltools::div(
+      class = "mb-3 d-flex align-items-center justify-content-between",
+      htmltools::h5(paste0("综合研判：", prediction$trend), class = "text-primary fw-bold mb-0"),
+      htmltools::span(class = "badge bg-success", "联网数据已接入")
+    ),
     htmltools::div(
       class = "mb-3 d-flex align-items-center justify-content-between",
       htmltools::h5(paste0("综合研判：", prediction$trend), class = "text-primary fw-bold mb-0"),

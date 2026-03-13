@@ -4,6 +4,8 @@
 # 本文件包含项目中使用的通用辅助函数和操作符
 # ==============================================================================
 
+
+
 # ------------------------------------------------------------------------------
 # NULL 合并操作符
 # ------------------------------------------------------------------------------
@@ -116,13 +118,36 @@ safe_numeric <- function(x, default = 0) {
 #' @return 解析后的列表，或 NULL
 extract_json <- function(text) {
   text <- trimws(text)
-  json_match <- regmatches(text, regexpr("\\{[^{}]*\\}", text))
-  if (length(json_match) > 0) {
-    tryCatch(
-      return(jsonlite::fromJSON(json_match[1])),
-      error = function(e) return(NULL)
-    )
+  
+  # 1. 尝试直接解析整个文本
+  tryCatch({
+    result <- jsonlite::fromJSON(text)
+    return(result)
+  }, error = function(e) {})
+  
+  # 2. 移除 Markdown 代码块标记后尝试解析
+  cleaned <- gsub("^```json[[:space:]]*", "", text)
+  cleaned <- gsub("^```[[:space:]]*", "", cleaned)
+  cleaned <- gsub("[[:space:]]*```$", "", cleaned)
+  cleaned <- trimws(cleaned)
+  
+  tryCatch({
+    result <- jsonlite::fromJSON(cleaned)
+    return(result)
+  }, error = function(e) {})
+  
+  # 3. 查找第一个 { 和最后一个 } 之间的内容
+  start <- regexpr("\\{", text)
+  end <- max(gregexpr("\\}", text)[[1]])
+  
+  if (start > 0 && end > start) {
+    json_str <- substr(text, start, end)
+    tryCatch({
+      result <- jsonlite::fromJSON(json_str)
+      return(result)
+    }, error = function(e) {})
   }
+  
   NULL
 }
 
