@@ -5,28 +5,157 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
+# 股票代码处理函数
+# ------------------------------------------------------------------------------
+
+#' 提取标准股票代码 (去除后缀)
+#' @param ticker 原始代码 (如 600519.SS, 0700.HK)
+#' @return 标准代码 (如 600519, 0700)
+extract_standard_ticker <- function(ticker) {
+  if (is.null(ticker) || ticker == "") return("")
+  
+  # 正则匹配：提取点号前的部分
+  # 同时也处理特殊前缀如 ^IXIC
+  std <- gsub("\\.(SS|SZ|HK|SHH|SHZ|HKG)$", "", ticker)
+  return(std)
+}
+
+#' 根据数据源转换代码格式
+#' @param ticker 标准代码
+#' @param source 数据源 ("yahoo" 或 "alphavantage")
+#' @return 格式化后的代码
+convert_ticker_for_source <- function(ticker, source = "yahoo") {
+  if (is.null(ticker) || ticker == "") return("")
+  
+  # 如果已经是带后缀的格式，先提取标准代码
+  std_ticker <- extract_standard_ticker(ticker)
+  
+  # 获取后缀配置
+  suffixes <- DATA_SOURCE_INFO[[source]]$suffixes
+  
+  # A 股识别逻辑
+  if (grepl("^[603]", std_ticker) && nchar(std_ticker) == 6) {
+    if (startsWith(std_ticker, "6")) {
+      return(paste0(std_ticker, suffixes$sh)) # 上海
+    } else {
+      return(paste0(std_ticker, suffixes$sz)) # 深圳
+    }
+  }
+  
+  # 港股识别逻辑 (4-5位数字)
+  if (grepl("^[0-9]+$", std_ticker) && (nchar(std_ticker) == 4 || nchar(std_ticker) == 5)) {
+    # 港股通常需要补齐 4 位 (Yahoo) 或 5 位 (Alpha Vantage 可能需要)
+    # 这里保持原有数字并加上后缀
+    return(paste0(std_ticker, suffixes$hk))
+  }
+  
+  # 美股或其他 (通常不需要后缀)
+  return(std_ticker)
+}
+
+# ------------------------------------------------------------------------------
 # 获取股票数据
 # ------------------------------------------------------------------------------
-#' 从 Yahoo Finance 获取股票数据
+
+#' 从指定数据源获取股票数据
 #' @param ticker 股票代码
 #' @param from 开始日期
 #' @param to 结束日期
+#' @param source 数据源 (默认 "yahoo")
 #' @return xts OHLC 数据，失败返回 NULL
-fetch_ticker_data <- function(ticker, from = Sys.Date() - 3650, to = Sys.Date()) {
+fetch_ticker_data <- function(ticker, from = Sys.Date() - 3650, to = Sys.Date(), source = "yahoo") {
   if (is.null(ticker) || ticker == "") return(NULL)
   
+  # 转换代码格式
+  target_ticker <- convert_ticker_for_source(ticker, source)
+  
   tryCatch({
-    quantmod::getSymbols(
-      ticker,
-      from = from,
-      to = to,
-      auto.assign = FALSE,
-      src = "yahoo"
-    )
+    if (source == "yahoo") {
+      quantmod::getSymbols(
+        target_ticker,
+        from = from,
+        to = to,
+        auto.assign = FALSE,
+        src = "yahoo"
+      )
+    } else if (source == "alphavantage") {
+      fetch_alphavantage_data(target_ticker, from = from, to = to)
+    } else {
+      stop("不支持的数据源")
+    }
   }, error = function(e) {
-    message(paste("获取股票数据失败:", e$message))
+    message(paste("获取股票数据失败 (", source, "): ", e$message))
     return(NULL)
   })
+}
+
+#' 从 Alpha Vantage 获取股票数据
+#' @param ticker 格式化后的股票代码
+#' @param from 开始日期
+#' @param to 结束日期
+#' @return xts OHLC 数据
+fetch_alphavantage_data <- function(ticker, from, to) {
+  api_key <- Sys.getenv("ALPHA_VANTAGE_API_KEY")
+  if (api_key == "") stop("未配置 ALPHA_VANTAGE_API_KEY 环境变量")
+  
+  # 构造请求 (使用 TIME_SERIES_DAILY，免费版限制)
+  # - outputsize="compact": 最近 100 个数据点 (免费)
+  # - outputsize="full": 完整历史 (付费)
+  req <- request("https://www.alphavantage.co/query") |>
+    req_url_query(
+      `function` = "TIME_SERIES_DAILY",
+      symbol = ticker,
+      outputsize = "compact",
+      apikey = api_key
+    ) |>
+    req_retry(max_tries = 3)
+  
+  resp <- req_perform(req)
+  content <- resp_body_json(resp)
+  
+  # 检查频率限制或错误
+  if (!is.null(content$Note)) {
+    stop(paste("Alpha Vantage API 限制:", content$Note))
+  }
+  
+  if (!is.null(content$`Error Message`)) {
+    stop(paste("Alpha Vantage API 错误:", content$`Error Message`))
+  }
+  
+  if (!is.null(content$Information)) {
+    stop(paste("Alpha Vantage API 信息:", content$Information))
+  }
+  
+  # 解析时间序列数据
+  ts_key <- "Time Series (Daily)"
+  if (is.null(content[[ts_key]])) {
+    stop("未找到时间序列数据，请检查代码是否正确")
+  }
+  
+  ts_data <- content[[ts_key]]
+  
+  # 转换为 data.frame
+  df <- do.call(rbind, lapply(names(ts_data), function(date) {
+    item <- ts_data[[date]]
+    data.frame(
+      Date = as.Date(date),
+      Open = as.numeric(item$`1. open`),
+      High = as.numeric(item$`2. high`),
+      Low = as.numeric(item$`3. low`),
+      Close = as.numeric(item$`4. close`),
+      Volume = as.numeric(item$`5. volume`),
+      stringsAsFactors = FALSE
+    )
+  }))
+  
+  # 排序并转换为 xts
+  df <- df[order(df$Date), ]
+  res_xts <- xts::xts(df[, -1], order.by = df$Date)
+  
+  # 裁剪日期范围
+  res_xts <- res_xts[paste0(from, "/", to)]
+  
+  return(res_xts)
 }
 
 # ------------------------------------------------------------------------------
@@ -61,8 +190,13 @@ process_ticker_data <- function(data, interval = "daily") {
   # 转换周期
   data <- convert_interval(data, interval)
   
-  # 确保列名格式统一 (Yahoo Finance 格式)
-  colnames(data) <- c("Open", "High", "Low", "Close", "Volume", "Adjusted")
+  # 统一列名格式
+  # Alpha Vantage 返回 5 列，Yahoo 返回 6 列
+  if (ncol(data) == 5) {
+    colnames(data) <- c("Open", "High", "Low", "Close", "Volume")
+  } else if (ncol(data) >= 6) {
+    colnames(data) <- c("Open", "High", "Low", "Close", "Volume", "Adjusted")
+  }
   
   data
 }

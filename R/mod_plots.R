@@ -123,16 +123,19 @@ render_ai_report_ui <- function(prediction, loading = FALSE) {
   if (!is.null(prediction$error)) {
     return(htmltools::div(class = "alert alert-danger", prediction$error))
   }
-  
+
+  # 根据趋势设置颜色
+  trend_class <- switch(prediction$trend,
+    "看多" = "text-success",
+    "看空" = "text-danger",
+    "中性" = "text-warning",
+    "text-primary"
+  )
+
   htmltools::tagList(
     htmltools::div(
       class = "mb-3 d-flex align-items-center justify-content-between",
-      htmltools::h5(paste0("综合研判：", prediction$trend), class = "text-primary fw-bold mb-0"),
-      htmltools::span(class = "badge bg-success", "联网数据已接入")
-    ),
-    htmltools::div(
-      class = "mb-3 d-flex align-items-center justify-content-between",
-      htmltools::h5(paste0("综合研判：", prediction$trend), class = "text-primary fw-bold mb-0"),
+      htmltools::h5(paste0("综合研判：", prediction$trend), class = paste0("fw-bold mb-0", trend_class)),
       htmltools::span(class = "badge bg-success", "联网数据已接入")
     ),
     htmltools::div(

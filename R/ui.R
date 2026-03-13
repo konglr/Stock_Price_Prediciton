@@ -72,6 +72,17 @@ ui <- bslib::page_sidebar(
   sidebar = bslib::sidebar(
     width = 300,
     
+    # 数据源选择
+    shiny::selectInput(
+      inputId = "data_source",
+      label = "数据源 (Data Source)",
+      choices = DATA_SOURCES,
+      selected = "yahoo"
+    ),
+    
+    # 动态显示数据源提示
+    shiny::uiOutput("data_source_help"),
+    
     # 股票选择
     shinyWidgets::pickerInput(
       inputId = "ticker_preset",
@@ -113,8 +124,7 @@ ui <- bslib::page_sidebar(
     ),
     
     shiny::hr(),
-    shiny::hr(),
-    shiny::h5("技术指标 (Technical Indicators)"),
+    shiny::h5("技术指标"),
     
     # 技术指标
     shiny::checkboxGroupInput(
@@ -151,21 +161,21 @@ ui <- bslib::page_sidebar(
     shiny::h6("AI 参数设置", class = "mb-2"),
     shiny::sliderInput(
       inputId = "ai_temperature",
-      label = "Temperature (创造性)",
+      label = "Temperature",
       min = 0, max = 1, value = 0.7, step = 0.1
     ),
     shiny::sliderInput(
       inputId = "ai_max_tokens",
-      label = "Max Tokens (输出长度)",
+      label = "Max Tokens",
       min = 256, max = 4096, value = 1024, step = 256
     ),
-    shiny::checkboxInput("ai_enable_search", "启用联网搜索 (Gemini / MiniMax)", value = FALSE),
+    shiny::checkboxInput("ai_enable_search", "启用联网搜索", value = FALSE),
     
     shiny::actionButton("run_ai", "运行 AI 联网预测", class = "btn-primary w-100"),
     
     shiny::hr(),
-    shiny::checkboxInput("show_points", "在图表标记极值点 (addPoints)", TRUE),
-    shiny::checkboxInput("show_prediction", "显示历史数据明细", TRUE)
+    shiny::checkboxInput("show_points", "标记极值点", TRUE),
+    shiny::checkboxInput("show_prediction", "显示数据明细", TRUE)
   ),
   
   # ==========================================================================
@@ -232,7 +242,7 @@ ui <- bslib::page_sidebar(
               # 资金管理
               htmltools::div(
                 class = "bt-col-sep",
-                htmltools::span(class = "bt-section-title", "\u2460 资金管理"),
+                htmltools::span(class = "bt-section-title", "[1] 资金管理"),
                 shiny::numericInput("init_capital", "初始本金 (USD)", value = 10000, min = 100),
                 shiny::helpText("账户起始本金额度")
               ),
@@ -240,7 +250,7 @@ ui <- bslib::page_sidebar(
               # 资金策略
               htmltools::div(
                 class = "bt-col-sep",
-                htmltools::span(class = "bt-section-title", "\u2461 资金策略"),
+                htmltools::span(class = "bt-section-title", "[2] 资金策略"),
                 shiny::selectInput("entry_rule", "建仓规则", choices = ENTRY_RULE_CHOICES, selected = "fixed_pct"),
                 shiny::numericInput("trade_size", "建仓比例 (%)", value = 20, min = 1, max = 100),
                 shiny::hr(),
@@ -251,7 +261,7 @@ ui <- bslib::page_sidebar(
               # 风险管理
               htmltools::div(
                 class = "bt-col-sep",
-                htmltools::span(class = "bt-section-title", "\u2462 风险管理"),
+                htmltools::span(class = "bt-section-title", "[3] 风险管理"),
                 shiny::numericInput("stop_loss", "止损规则 (%)", value = 0, min = 0),
                 shiny::numericInput("take_profit", "止盈规则 (%)", value = 0, min = 0),
                 shiny::helpText("设置为 0 禁用规则")
@@ -259,7 +269,7 @@ ui <- bslib::page_sidebar(
               
               # 交易策略
               htmltools::div(
-                htmltools::span(class = "bt-section-title", "\u2463 交易策略"),
+                htmltools::span(class = "bt-section-title", "[4] 交易策略"),
                 shiny::selectInput("bt_strategy", "代码模板", choices = BACKTEST_STRATEGIES, selected = "supertrend"),
                 shiny::textAreaInput("strategy_code", "信号逻辑代码", value = "", height = "165px", placeholder = "代码...")
               )
@@ -292,7 +302,7 @@ ui <- bslib::page_sidebar(
             shiny::hr(),
             htmltools::div(
               style = "background: #fcfcfc; border-radius: 8px; padding: 15px;",
-              htmltools::h6(bsicons::bs_icon("graph-up"), " 净值走势与回撤分析 (模拟 TradingView 样式)"),
+              htmltools::h6(bsicons::bs_icon("graph-up"), " 净值走势与回撤分析"),
               shiny::plotOutput("bt_equity_plot", height = "450px")
             )
           )
@@ -309,7 +319,7 @@ ui <- bslib::page_sidebar(
               # 左侧：聊天消息区域
               htmltools::div(
                 class = "col-md-10",
-                shinychat::chat_ui("chat", placeholder = "输入您的问题，例如：帮我分析一下苹果公司的股票...", height = "500px"),
+                shinychat::chat_ui("chat", placeholder = "输入您的问题...", height = "500px"),
                 
                 # 操作按钮
                 htmltools::div(
@@ -332,12 +342,12 @@ ui <- bslib::page_sidebar(
                     class = "card-body p-2",
                     htmltools::div(
                       class = "d-grid gap-2",
-                      shiny::actionButton("quick_q1", "\U0001F4CA 技术面分析", class = "btn-outline-primary btn-sm text-start"),
-                      shiny::actionButton("quick_q2", "\U0001F4B0 财务解读", class = "btn-outline-primary btn-sm text-start"),
-                      shiny::actionButton("quick_q3", "\U0001F4C8 趋势预测", class = "btn-outline-primary btn-sm text-start"),
-                      shiny::actionButton("quick_q4", "\U0001F3AF 买卖建议", class = "btn-outline-primary btn-sm text-start"),
-                      shiny::actionButton("quick_q5", "\U0001F4F0 重大新闻", class = "btn-outline-primary btn-sm text-start"),
-                      shiny::actionButton("quick_q6", "\u2753 指标解释", class = "btn-outline-primary btn-sm text-start")
+                      shiny::actionButton("quick_q1", "分析技术面", class = "btn-outline-primary btn-sm text-start"),
+                      shiny::actionButton("quick_q2", "解读财务", class = "btn-outline-primary btn-sm text-start"),
+                      shiny::actionButton("quick_q3", "预测走势", class = "btn-outline-primary btn-sm text-start"),
+                      shiny::actionButton("quick_q4", "买卖建议", class = "btn-outline-primary btn-sm text-start"),
+                      shiny::actionButton("quick_q5", "重大新闻", class = "btn-outline-primary btn-sm text-start"),
+                      shiny::actionButton("quick_q6", "指标解释", class = "btn-outline-primary btn-sm text-start")
                     )
                   )
                 )

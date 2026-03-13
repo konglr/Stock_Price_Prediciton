@@ -41,10 +41,45 @@ server <- function(input, output, session) {
     toupper(input$ticker_custom)
   })
   
+  # 数据源提示
+  output$data_source_help <- renderUI({
+    # 增加默认值保护
+    source <- if (!is.null(input$data_source)) input$data_source else "yahoo"
+    
+    # 根据数据源获取提示内容
+    format_info <- if (source == "yahoo") YAHOO_TICKER_FORMAT else ALPHAVANTAGE_TICKER_FORMAT
+    limit_text <- DATA_SOURCE_INFO[[source]]$limit_text
+    
+    shiny::div(
+      style = "font-size: 0.75rem; color: #666; margin-bottom: 10px; background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 3px solid #3498db;",
+      shiny::div(shiny::strong("代码格式："), style = "margin-bottom: 3px;"),
+      shiny::div(format_info$us),
+      shiny::div(format_info$shanghai),
+      shiny::div(format_info$shenzhen),
+      shiny::div(format_info$hk),
+      shiny::hr(style = "margin: 5px 0;"),
+      shiny::div(shiny::strong("数据源说明："), limit_text)
+    )
+  })
+  
   # 获取原始数据
   ticker_data <- reactive({
     ticker <- current_ticker()
-    fetch_ticker_data(ticker)
+    source <- if (!is.null(input$data_source)) input$data_source else "yahoo"
+    
+    # 增加验证，防止空请求
+    shiny::validate(
+      shiny::need(ticker != "", "请输入股票代码")
+    )
+    
+    data <- fetch_ticker_data(ticker, source = source)
+    
+    # 如果获取失败，给出用户友好的提示
+    shiny::validate(
+      shiny::need(!is.null(data), paste0("无法从 ", DATA_SOURCE_INFO[[source]]$name, " 获取股票 [", ticker, "] 的数据。请检查代码格式是否正确，或数据源是否存在频率限制。"))
+    )
+    
+    data
   })
   
   # 处理后的数据 (周期转换)
@@ -56,7 +91,8 @@ server <- function(input, output, session) {
   
   # 时间跨度 (天数)
   period_days <- reactive({
-    PERIOD_DAYS[input$period] %||% 365
+    val <- PERIOD_DAYS[input$period]
+    if (is.null(val) || is.na(val)) 365 else val
   })
   
   # ==========================================================================
@@ -64,15 +100,15 @@ server <- function(input, output, session) {
   # ==========================================================================
   
   output$ai_model_ui <- renderUI({
-    provider <- input$ai_provider
-    choices <- AI_MODELS[[provider]] %||% AI_MODELS$gemini
-    selectInput("ai_model", "选择模型", choices = choices)
+    provider <- if (!is.null(input$ai_provider)) input$ai_provider else "gemini"
+    choices <- if (!is.null(AI_MODELS[[provider]])) AI_MODELS[[provider]] else AI_MODELS$gemini
+    shiny::selectInput("ai_model", "选择模型", choices = choices)
   })
   
   output$selected_model_badge <- renderUI({
-      model <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
+    model <- if (!is.null(input$ai_model)) input$ai_model else "gemini-3.1-flash-lite-preview"
     friendly_name <- get_model_friendly_name(model)
-    span(class = "badge bg-info", friendly_name)
+    shiny::span(class = "badge bg-info", friendly_name)
   })
   
   # ==========================================================================
@@ -109,18 +145,18 @@ server <- function(input, output, session) {
     data <- processed_ticker_data()
     stats <- get_stock_stats(data)
     provider <- input$ai_provider
-    model_id <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
-    temperature <- input$ai_temperature %||% 0.7
-    max_tokens <- input$ai_max_tokens %||% 2048
+    model_id <- if (!is.null(input$ai_model)) input$ai_model else "gemini-3.1-flash-lite-preview"
+    temperature <- if (!is.null(input$ai_temperature)) input$ai_temperature else 0.7
+    max_tokens <- if (!is.null(input$ai_max_tokens)) input$ai_max_tokens else 2048
     
     tryCatch({
       result <- run_ai_report(
         ticker        = ticker,
         data          = data,
         stats         = stats,
-        search_result = NULL,  # 可以后续添加联网搜索结果
+        search_result = NULL,
         provider      = provider,
-        model_id      = input$ai_model %||% "gemini-3.1-flash-lite-preview",
+        model_id      = model_id,
         temperature   = temperature,
         max_tokens    = max_tokens,
         enable_search = input$ai_enable_search
@@ -252,9 +288,9 @@ server <- function(input, output, session) {
         current_ticker = ticker,
         current_data  = data,
         provider      = input$ai_provider,
-        model_id      = input$ai_model %||% "gemini-3.1-flash-lite-preview",
-        temperature   = input$ai_temperature %||% 0.7,
-        max_tokens    = input$ai_max_tokens %||% 1024,
+        model_id      = if (!is.null(input$ai_model)) input$ai_model else "gemini-3.1-flash-lite-preview",
+        temperature   = if (!is.null(input$ai_temperature)) input$ai_temperature else 0.7,
+        max_tokens    = if (!is.null(input$ai_max_tokens)) input$ai_max_tokens else 1024,
         enable_search = input$ai_enable_search
       )
       
@@ -305,19 +341,19 @@ server <- function(input, output, session) {
       user_question  = user_input,
       current_ticker = isolate(current_ticker()),
       provider       = input$ai_provider,
-      model_id       = input$ai_model %||% "gemini-3.1-flash-lite-preview"
+      model_id       = if (!is.null(input$ai_model)) input$ai_model else "gemini-3.1-flash-lite-preview"
     )
     
     is_switching <- q_info$need_data && q_info$switch_stock && 
                     q_info$ticker != isolate(current_ticker())
     
     if (is_switching) {
-      chat_append("chat", response = paste0("\U0001F504 识别到新股票：**", q_info$ticker, "**，正在加载数据..."), role = "assistant")
+      chat_append("chat", response = paste0("识别到新股票：**", q_info$ticker, "**，正在加载数据..."), role = "assistant")
       pending_ai_request(list(question = user_input, history = current_h, q_info = q_info))
       switch_ticker(q_info$ticker)
     } else {
       if (q_info$need_data) {
-        chat_append("chat", response = "\U0001F50D 正在分析当前股票数据...", role = "assistant")
+        chat_append("chat", response = "正在分析当前股票数据...", role = "assistant")
       }
       run_ai_chat_analysis(user_input = user_input, history_to_use = current_h, question_info = q_info)
     }
@@ -330,27 +366,27 @@ server <- function(input, output, session) {
   
   # 快捷问题点击事件
   observeEvent(input$quick_q1, { 
-    chat_append("chat", response = "\U0001F4CA 分析当前技术面", role = "user")
+    chat_append("chat", response = "分析当前技术面", role = "user")
     handle_user_message("帮我分析一下当前股票的技术面走势")
   })
   observeEvent(input$quick_q2, { 
-    chat_append("chat", response = "\U0001F4B0 解读财务指标", role = "user")
+    chat_append("chat", response = "解读财务指标", role = "user")
     handle_user_message("请解读一下该股票最新的财务报表和关键指标")
   })
   observeEvent(input$quick_q3, { 
-    chat_append("chat", response = "\U0001F4C8 预测走势", role = "user")
+    chat_append("chat", response = "预测走势", role = "user")
     handle_user_message("基于当前数据，预测一下未来一周的走势")
   })
   observeEvent(input$quick_q4, { 
-    chat_append("chat", response = "\U0001F3AF 买卖建议", role = "user")
+    chat_append("chat", response = "买卖建议", role = "user")
     handle_user_message("给出现在该股票的买卖策略建议")
   })
   observeEvent(input$quick_q5, { 
-    chat_append("chat", response = "\U0001F4F0 重大新闻", role = "user")
+    chat_append("chat", response = "重大新闻", role = "user")
     handle_user_message("该股票最近有什么重大的新闻或公告？")
   })
   observeEvent(input$quick_q6, { 
-    chat_append("chat", response = "\u2753 指标解释", role = "user")
+    chat_append("chat", response = "指标解释", role = "user")
     handle_user_message("请解释一下什么是 RSI 指标，在当前股票中如何应用？")
   })
   
@@ -362,10 +398,10 @@ server <- function(input, output, session) {
   # 聊天状态显示
   output$chat_status <- renderUI({
     if (chat_loading()) {
-      span(class = "badge bg-warning", "AI 正在分析中...")
+      shiny::span(class = "badge bg-warning", "AI 正在分析中...")
     } else {
-      model <- input$ai_model %||% "gemini-3.1-flash-lite-preview"
-      span(class = "badge bg-success", paste("已连接", model))
+      model <- if (!is.null(input$ai_model)) input$ai_model else "gemini-3.1-flash-lite-preview"
+      shiny::span(class = "badge bg-success", paste("已连接", model))
     }
   })
   

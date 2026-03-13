@@ -166,11 +166,38 @@ QUICK_QUESTIONS <- list(
 )
 
 # ------------------------------------------------------------------------------
-# Yahoo Finance 股票代码格式说明
+# 数据源配置
+# ------------------------------------------------------------------------------
+DATA_SOURCES <- c("Yahoo Finance" = "yahoo", "Alpha Vantage" = "alphavantage")
+
+DATA_SOURCE_INFO <- list(
+  "yahoo" = list(
+    name       = "Yahoo Finance",
+    env_key    = NULL,
+    limit_text = "无明确频率限制，数据完整",
+    suffixes = list(sh = ".SS", sz = ".SZ", hk = ".HK")
+  ),
+  "alphavantage" = list(
+    name       = "Alpha Vantage",
+    env_key    = "ALPHA_VANTAGE_API_KEY",
+    limit_text = "免费版限制：5次/分钟，仅最近100天数据",
+    suffixes = list(sh = ".SHH", sz = ".SHZ", hk = ".HKG")
+  )
+)
+
+# ------------------------------------------------------------------------------
+# 股票代码格式说明
 # ------------------------------------------------------------------------------
 YAHOO_TICKER_FORMAT <- list(
   us      = "美股：GOOGL、AAPL、TSLA、NVDA 等",
   shanghai = "A 股上海：601988.SS、600519.SS 等",
   shenzhen = "A 股深圳：000001.SZ、002594.SZ 等",
   hk      = "港股：0700.HK、9988.HK 等"
+)
+
+ALPHAVANTAGE_TICKER_FORMAT <- list(
+  us      = "美股：GOOGL、AAPL、TSLA、NVDA 等",
+  shanghai = "A 股上海：601988.SHH、600519.SHH 等",
+  shenzhen = "A 股深圳：000001.SHZ、002594.SHZ 等",
+  hk      = "港股：0700.HKG、9988.HKG 等"
 )

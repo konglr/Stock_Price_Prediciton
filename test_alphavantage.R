@@ -101,4 +101,24 @@ cat("- 500 requests per day\n")
 cat("- Use 'compact' for last 100 days\n")
 cat("- Use 'full' for all historical data\n")
 
+# Test 3: Try outputsize = "full" (should be premium)
+cat("\n=== Test 3: outputsize = 'full' (Premium) ===\n")
+tryCatch({
+  params <- list(
+    "function" = "TIME_SERIES_DAILY",
+    symbol = "IBM",
+    outputsize = "full",
+    apikey = API_KEY
+  )
+
+  response <- GET(BASE_URL, query = params)
+  content <- content(response, "parsed", encoding = "UTF-8")
+
+  cat("Raw API response:\n")
+  print(content[c("Error Message", "Note", "Information", "Meta Data")])
+
+}, error = function(e) {
+  cat("Error:", e$message, "\n")
+})
+
 cat("\nTest complete!\n")

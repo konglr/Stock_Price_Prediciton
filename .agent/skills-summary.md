@@ -157,27 +157,61 @@ cs <- add_TA(atr_values, col = "red")
 
 ## 7. Alpha Vantage 股票数据 API
 
-* **状态**: ✅ 2026-03-11 测试通过
+* **状态**: ✅ 2026-03-13 测试通过
 * **API Key 环境变量**: `ALPHA_VANTAGE_API_KEY` (从 `.Renviron` 读取)
 * **Base URL**: `https://www.alphavantage.co/query`
 * **免费限制**: 5 次/分钟, 500 次/天
 * **详细文档**: 参见 `.agent/skills/alphavantage/SKILL.md`
 
-**股票代码格式** (与 Yahoo Finance 不同!):
+### 免费版 API 端点限制 (2026-03-13 测试)
 
-| 市场 | Yahoo Finance | Alpha Vantage | 示例 |
-|------|---------------|---------------|------|
-| 美股 | `AAPL`, `IBM` | `AAPL`, `IBM` | ✅ 相同 |
-| 上海 A 股 | `600519.SS` | `600519.SHH` | 贵州茅台 |
-| 深圳 A 股 | `000001.SZ` | `000001.SHZ` | 平安银行 |
-| 港股 ADR | - | `TCEHY` | 腾讯(USD) |
-| 港股伦敦 | `0700.HK` | `0Z4S.LON` | 腾讯(HKD) |
+| 端点 | 免费限制 | 数据量 | 说明 |
+|------|---------|--------|------|
+| `TIME_SERIES_DAILY` (compact) | ✅ 免费 | **100 条** | 最近 100 个交易日 |
+| `TIME_SERIES_DAILY` (full) | 💰 付费 | 完整历史 | Premium 功能 |
+| `TIME_SERIES_DAILY_ADJUSTED` | 💰 付费 | - | Premium 端点 |
+| `TIME_SERIES_WEEKLY` | ✅ 免费 | **1375 条** | 约 26 年周线数据 |
+| `TIME_SERIES_MONTHLY` | ✅ 免费 | **316 条** | 约 26 年月线数据 |
+| `TIME_SERIES_INTRADAY` | 💰 付费 | - | Premium 端点 |
+| `GLOBAL_QUOTE` | ✅ 免费 | 1 条 | 仅最新报价 |
 
-**R 使用注意**:
-- `function` 是 R 保留关键字，API 参数需用引号：`"function" = "TIME_SERIES_DAILY"`
-- 港股需用 `SYMBOL_SEARCH` 查找正确代码
+### 推荐使用策略
 
-**MCP (Model Context Protocol) 支持**:
+| 数据需求 | 推荐方案 |
+|----------|----------|
+| 短期分析 (< 100 天) | Alpha Vantage `TIME_SERIES_DAILY` |
+| 长期历史数据 | Yahoo Finance (无限制) |
+| 周线分析 | Alpha Vantage `TIME_SERIES_WEEKLY` |
+
+### 股票代码格式自动转换
+
+| 市场 | 标准格式 | Yahoo Finance | Alpha Vantage |
+|------|----------|---------------|---------------|
+| 美股 | `AAPL` | `AAPL` | `AAPL` |
+| 上海 A 股 | `600519` | `600519.SS` | `600519.SHH` |
+| 深圳 A 股 | `000001` | `000001.SZ` | `000001.SHZ` |
+| 港股 | `0700` | `0700.HK` | `0700.HKG` |
+
+### 集成实现细节 (2026-03-13)
+
+- **自动转换**: 通过 `convert_ticker_for_source()` 自动处理后缀，用户无需记忆不同源的格式
+- **智能识别**: `extract_standard_ticker()` 从任意格式提取标准代码 (如 `600519.SS` → `600519`)
+- **UI 集成**: 侧边栏新增数据源切换开关，动态显示数据限制提示
+- **异常处理**: 针对 AV 免费版 5次/分钟的限制，增加 `tryCatch` 错误捕获
+- **数据对齐**: 自动解析 API 返回数据，统一列名为 quantmod 标准格式 (OHLCV)
+
+### 核心函数
+
+```r
+# 数据获取（自动处理代码转换）
+fetch_ticker_data(ticker, source = "alphavantage")
+
+# 代码转换函数
+extract_standard_ticker("600519.SS")  # → "600519"
+convert_ticker_for_source("600519", "alphavantage")  # → "600519.SHH"
+```
+
+### MCP (Model Context Protocol) 支持
 - **远程服务器**: `https://mcp.alphavantage.co/mcp?apikey=YOUR_API_KEY`
 - **本地安装**: `uvx av-mcp YOUR_API_KEY`
 - **支持平台**: Claude Code, Cursor, VS Code, OpenAI Codex
@@ -556,87 +590,8 @@ df = ak.stock_hsgt_hist()
 
 ---
 
-## 15. 项目核心架构与流程## 11. 项目核心架构与流程
-
-### AI 股票识别工作流
-
-```
-用户提问 → analyze_user_question() → 判断问题类型
-                                        ↓
-                    ┌──────────────────┼──────────────────┐
-                    ↓                  ↓                  ↓
-              需要数据            不需要数据          切换股票
-                    ↓                  ↓                  ↓
-           加载股票数据        直接回答问题      switch_ticker()
-                    ↓                                    ↓
-           run_ai_chat()                         pending_ai_request()
-                    ↓                                    ↓
-           显示分析结果                         等待数据加载
-                                                       ↓
-                                              触发 AI 分析
-```
-
-### 数据同步机制
-
-已通过 `pending_ai_request()` 机制彻底解决切换股票时的数据竞争问题：
-
-1. 用户问新股票 → `pending_ai_request()` 存储请求
-2. `switch_ticker()` 更新输入
-3. `ticker_data()` reactive 触发
-4. `observeEvent(ticker_data())` 执行待处理请求
-
-### 回测系统架构
-
-```
-策略选择 → load_strategy_template() → 代码填充
-                                        ↓
-参数配置 → run_backtest() → run_simple_backtest()
-                                        ↓
-                        ┌───────────────┼───────────────┐
-                        ↓               ↓               ↓
-                   交易记录        权益曲线        绩效统计
-```
-
-**策略文件规范** (`trading_strategy/*.R`):
-```r
-# 可用变量: data, prices, signals, n
-sma5 <- SMA(prices, n = 5)
-sma20 <- SMA(prices, n = 20)
-for(i in 2:n) {
-  if (!is.na(sma5[i-1]) && !is.na(sma20[i-1])) {
-    if (sma5[i-1] <= sma20[i-1] && sma5[i] > sma20[i]) signals[i] <- 1   # Buy
-    if (sma5[i-1] >= sma20[i-1] && sma5[i] < sma20[i]) signals[i] <- -1  # Sell
-  }
-}
-```
-
----
-
-## 12. 开发规范
-
-### 模块化原则
-
-1. **单一职责**: 每个模块只负责一个功能域
-2. **依赖注入**: 函数参数传递，避免全局变量
-3. **命名约定**: 
-   - 模块文件: `mod_*.R`
-   - 函数前缀: 模块相关 (如 `data_`, `ai_`, `bt_`)
-4. **文档注释**: 每个函数使用 roxygen2 风格注释
-
-### Git 提交规范
-
-```
-feat: 添加新功能
-fix: 修复 bug
-refactor: 代码重构
-docs: 文档更新
-style: 代码格式
-test: 测试相关
-```
-
----
-
 ## 更新记录
+- 2026-03-13: **完成 Alpha Vantage 数据源全流程集成**。实现智能代码转换（SHH/SHZ/HKG）、UI 数据源切换、频率限制异常处理、数据对齐。
 - 2026-03-11: 新增 AkShare 中国金融数据 API (Python开源库)
 - 2026-03-11: 新增 EODHD API，支持50+交易所 (免费20次/天)
 - 2026-03-11: 新增 FMP (Financial Modeling Prep) API，财务报表丰富 (免费250次/天)

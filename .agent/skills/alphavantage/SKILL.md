@@ -9,7 +9,84 @@ Alpha Vantage 提供免费的股票 API，支持美股、A 股、港股等多种
 - **API Key 环境变量**: `ALPHA_VANTAGE_API_KEY` (从 `.Renviron` 读取)
 - **Base URL**: `https://www.alphavantage.co/query`
 - **免费限制**: 5 次/分钟, 500 次/天
-- **R 包依赖**: `httr`, `jsonlite`, `xts`, `quantmod`
+- **R 包依赖**: `httr2`, `jsonlite`, `xts`, `quantmod`
+
+---
+
+## 免费版 API 端点限制测试 (2026-03-13)
+
+| 端点 | 免费限制 | 数据量 | 说明 |
+|------|---------|--------|------|
+| `TIME_SERIES_DAILY` (compact) | ✅ 免费 | **100 条** | 最近 100 个交易日 |
+| `TIME_SERIES_DAILY` (full) | 💰 付费 | 完整历史 | Premium 功能 |
+| `TIME_SERIES_DAILY_ADJUSTED` | 💰 付费 | - | Premium 端点 |
+| `TIME_SERIES_WEEKLY` | ✅ 免费 | **1375 条** | 约 26 年周线数据 |
+| `TIME_SERIES_MONTHLY` | ✅ 免费 | **316 条** | 约 26 年月线数据 |
+| `TIME_SERIES_INTRADAY` | 💰 付费 | - | Premium 端点 |
+| `GLOBAL_QUOTE` | ✅ 免费 | 1 条 | 仅最新报价 |
+
+### 测试验证结果 (2026-03-13)
+
+```
+=== 测试: TIME_SERIES_DAILY | outputsize: compact ===
+数据行数: 100 
+日期范围: 2025-10-17 至 2026-03-12 
+
+=== 测试: TIME_SERIES_DAILY | outputsize: full ===
+信息: outputsize=full 是付费功能
+
+=== 测试: TIME_SERIES_WEEKLY ===
+数据行数: 1375 
+日期范围: 1999-11-12 至 2026-03-12 
+```
+
+### 推荐使用策略
+
+| 数据需求 | 推荐方案 |
+|----------|----------|
+| 短期分析 (< 100 天) | Alpha Vantage `TIME_SERIES_DAILY` |
+| 长期历史数据 | Yahoo Finance (无限制) |
+| 周线分析 | Alpha Vantage `TIME_SERIES_WEEKLY` |
+
+---
+
+## 项目集成实现 (2026-03-13)
+
+### 核心函数
+
+```r
+# 获取 Alpha Vantage 数据
+fetch_alphavantage_data(ticker, from, to)
+
+# 股票代码智能识别
+extract_standard_ticker(ticker)  # 600519.SS → 600519
+
+# 根据数据源转换格式
+convert_ticker_for_source(ticker, source)  # 600519 → 600519.SHH (alphavantage)
+```
+
+### 股票代码格式自动转换
+
+| 市场 | 标准格式 | Yahoo Finance | Alpha Vantage |
+|------|----------|---------------|---------------|
+| 美股 | `AAPL` | `AAPL` | `AAPL` |
+| 上海 A 股 | `600519` | `600519.SS` | `600519.SHH` |
+| 深圳 A 股 | `000001` | `000001.SZ` | `000001.SHZ` |
+| 港股 | `0700` | `0700.HK` | `0700.HKG` |
+
+### 数据格式统一
+
+Alpha Vantage 返回 5 列，Yahoo Finance 返回 6 列，系统自动统一为 quantmod 兼容格式：
+
+```r
+# Alpha Vantage 返回列名
+# Open, High, Low, Close, Volume
+
+# Yahoo Finance 返回列名  
+# Open, High, Low, Close, Volume, Adjusted
+```
+
+---
 
 ## MCP (Model Context Protocol) 支持
 
@@ -42,206 +119,81 @@ Alpha Vantage 提供 MCP 服务器，允许 AI 助手直接调用 API：
 | `commodities` | WTI, BRENT, GOLD_SILVER_SPOT, ALL_COMMODITIES |
 | `economic_indicators` | REAL_GDP, TREASURY_YIELD, CPI |
 
-### Python MCP 测试脚本
-
-已创建 `test_mcp_alpha_vantage.py`，测试通过 (2026-03-11):
-
-```python
-import requests
-
-BASE_URL = "https://www.alphavantage.co/query"
-API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
-
-# 日 K 线
-params = {"function": "TIME_SERIES_DAILY", "symbol": "IBM", "apikey": API_KEY}
-data = requests.get(BASE_URL, params=params).json()
-
-# 技术指标
-params = {"function": "SMA", "symbol": "IBM", "interval": "daily", 
-         "time_period": 20, "series_type": "close", "apikey": API_KEY}
-data = requests.get(BASE_URL, params=params).json()
-```
-
 ---
-
-## 股票代码格式对比
-
-| 市场 | Yahoo Finance | Alpha Vantage | 状态 |
-|------|---------------|---------------|------|
-| 美股 | `AAPL`, `IBM` | `AAPL`, `IBM` | ✅ 相同 |
-| 上海 A 股 | `600519.SS` | `600519.SHH` | ✅ 已验证 |
-| 深圳 A 股 | `000001.SZ` | `000001.SHZ` | ✅ 已验证 |
-| 港股 ADR | - | `TCEHY` (腾讯) | ✅ 已验证 |
-| 港股伦敦 (HKD) | `0700.HK` | `0Z4S.LON` | ✅ 已验证 |
 
 ## 常用 API 函数
 
 ### 1. 日 K 线数据 (TIME_SERIES_DAILY)
 
 ```r
-# 获取日 K 线数据
-params <- list(
-  "function" = "TIME_SERIES_DAILY",
-  symbol = "AAPL",
-  outputsize = "compact",  # "compact": 100天, "full": 全部历史
-  apikey = API_KEY
-)
+# 使用 httr2 获取日 K 线数据
+library(httr2)
 
-response <- GET(BASE_URL, query = params)
-content <- content(response, "parsed")
-daily_data <- content$`Time Series (Daily)`
+api_key <- Sys.getenv("ALPHA_VANTAGE_API_KEY")
+req <- request("https://www.alphavantage.co/query") |>
+  req_url_query(
+    `function` = "TIME_SERIES_DAILY",
+    symbol = "AAPL",
+    outputsize = "compact",  # 免费: "compact" (100天), 付费: "full"
+    apikey = api_key
+  )
 
-# 转换为 data.frame
-df <- data.frame(
-  Date = as.Date(names(daily_data)),
-  Open = as.numeric(sapply(daily_data, `[[`, "1. open")),
-  High = as.numeric(sapply(daily_data, `[[`, "2. high")),
-  Low = as.numeric(sapply(daily_data, `[[`, "3. low")),
-  Close = as.numeric(sapply(daily_data, `[[`, "4. close")),
-  Volume = as.numeric(sapply(daily_data, `[[`, "5. volume"))
-)
+resp <- req_perform(req)
+content <- resp_body_json(resp)
+
+# 检查错误
+if (!is.null(content$Note)) stop("频率限制:", content$Note)
+if (!is.null(content$Information)) stop("API 信息:", content$Information)
+
+# 解析数据
+ts_data <- content$`Time Series (Daily)`
 ```
 
-### 2. 股票搜索 (SYMBOL_SEARCH)
+### 2. 周 K 线数据 (TIME_SERIES_WEEKLY)
+
+```r
+# 周 K 线可获取 26 年历史数据（免费）
+req <- request("https://www.alphavantage.co/query") |>
+  req_url_query(
+    `function` = "TIME_SERIES_WEEKLY",
+    symbol = "AAPL",
+    apikey = api_key
+  )
+```
+
+### 3. 股票搜索 (SYMBOL_SEARCH)
 
 ```r
 # 搜索股票代码
-params <- list(
-  "function" = "SYMBOL_SEARCH",
-  keywords = "Tencent",
-  apikey = API_KEY
-)
+req <- request("https://www.alphavantage.co/query") |>
+  req_url_query(
+    `function` = "SYMBOL_SEARCH",
+    keywords = "Tencent",
+    apikey = api_key
+  )
 
-response <- GET(BASE_URL, query = params)
-content <- content(response, "parsed")
+resp <- req_perform(req)
+content <- resp_body_json(resp)
 matches <- content$bestMatches
-
-# 返回数据框
-df <- data.frame(
-  Symbol = sapply(matches, `[[`, "1. symbol"),
-  Name = sapply(matches, `[[`, "2. name"),
-  Type = sapply(matches, `[[`, "3. type"),
-  Region = sapply(matches, `[[`, "4. region"),
-  Currency = sapply(matches, `[[`, "8. currency")
-)
 ```
-
-### 3. 其他时间序列
-
-- `TIME_SERIES_INTRADAY` - 分钟级数据
-- `TIME_SERIES_DAILY_ADJUSTED` - 调整后日线（含股息拆分）
-- `TIME_SERIES_WEEKLY` - 周线
-- `TIME_SERIES_MONTHLY` - 月线
 
 ### 4. 技术指标
 
-Alpha Vantage 内置技术指标：
+Alpha Vantage 内置技术指标（部分可能需要付费）：
 - `SMA` - 简单移动平均
 - `EMA` - 指数移动平均
 - `RSI` - 相对强弱指数
 - `MACD` - 移动平均收敛散度
 - `BBANDS` - 布林带
-- `STOCH` - 随机指标
-- `ADX` - 平均趋向指数
-
-```r
-# 获取 RSI 指标
-params <- list(
-  "function" = "RSI",
-  symbol = "AAPL",
-  interval = "daily",
-  time_period = 14,
-  series_type = "close",
-  apikey = API_KEY
-)
-```
-
-## R 函数封装
-
-```r
-# 获取日 K 线数据
-get_daily_data <- function(symbol, outputsize = "compact") {
-  params <- list(
-    "function" = "TIME_SERIES_DAILY",
-    symbol = symbol,
-    outputsize = outputsize,
-    apikey = API_KEY
-  )
-  
-  response <- GET(BASE_URL, query = params)
-  content <- content(response, "parsed", encoding = "UTF-8")
-  
-  if (!is.null(content$`Error Message`)) {
-    stop("API Error:", content$`Error Message`)
-  }
-  
-  daily_data <- content$`Time Series (Daily)`
-  
-  dates <- names(daily_data)
-  df <- data.frame(
-    Date = as.Date(dates),
-    Open = as.numeric(sapply(daily_data, `[[`, "1. open")),
-    High = as.numeric(sapply(daily_data, `[[`, "2. high")),
-    Low = as.numeric(sapply(daily_data, `[[`, "3. low")),
-    Close = as.numeric(sapply(daily_data, `[[`, "4. close")),
-    Volume = as.numeric(sapply(daily_data, `[[`, "5. volume"))
-  )
-  
-  df <- df[order(df$Date), ]
-  
-  # 转换为 xts 对象
-  xts_data <- xts(df[, c("Open", "High", "Low", "Close", "Volume")], 
-                  order.by = df$Date)
-  
-  return(xts_data)
-}
-
-# 搜索股票
-search_stock <- function(keywords) {
-  params <- list(
-    "function" = "SYMBOL_SEARCH",
-    keywords = keywords,
-    apikey = API_KEY
-  )
-  
-  response <- GET(BASE_URL, query = params)
-  content <- content(response, "parsed")
-  
-  if (is.null(content$bestMatches)) {
-    return(data.frame())
-  }
-  
-  matches <- content$bestMatches
-  df <- data.frame(
-    Symbol = sapply(matches, `[[`, "1. symbol"),
-    Name = sapply(matches, `[[`, "2. name"),
-    Type = sapply(matches, `[[`, "3. type"),
-    Region = sapply(matches, `[[`, "4. region"),
-    Currency = sapply(matches, `[[`, "8. currency"),
-    stringsAsFactors = FALSE
-  )
-  
-  return(df)
-}
-```
-
-## 港股代码查找流程
-
-由于港股在 Alpha Vantage 没有直接代码，需使用搜索功能：
-
-1. 使用 `search_stock("腾讯")` 或 `search_stock("Tencent")` 搜索
-2. 找到对应代码：
-   - ADR: `TCEHY` (美元)
-   - 伦敦上市: `0Z4S.LON` (港币)
-3. 获取数据后注意货币单位
 
 ## 注意事项
 
-1. **R 保留关键字**: `function` 是 R 保留关键字，API 参数需用引号：`"function" = "..."`
-2. **API 限流**: 免费版 5 次/分钟，需使用 `Sys.sleep(6)` 间隔
-3. **数据延迟**: 日线数据有 15 分钟延迟
-4. **数据质量**: A 股数据与 Yahoo 对比一致
+1. **R 保留关键字**: `function` 是 R 保留关键字，API 参数需用反引号或引号
+2. **API 限流**: 免费版 5 次/分钟，建议请求间隔 ≥ 12 秒
+3. **数据延迟**: 日线数据有延迟
+4. **付费端点**: `TIME_SERIES_DAILY_ADJUSTED`、`TIME_SERIES_INTRADAY`、`outputsize=full` 均为付费功能
 
 ## 更新记录
 
+- 2026-03-13: 更新免费版 API 限制测试结果，新增项目集成实现说明
 - 2026-03-11: 新增 Alpha Vantage SKILL.md
